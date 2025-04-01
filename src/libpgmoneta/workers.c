@@ -47,7 +47,6 @@ static void* worker_do(struct worker* worker);
 static void worker_destroy(struct worker* worker);
 
 static int semaphore_init(struct semaphore* semaphore, int value);
-static void semaphore_reset(struct semaphore* semaphore);
 static void semaphore_post(struct semaphore* semaphore);
 static void semaphore_post_all(struct semaphore* semaphore);
 static void semaphore_wait(struct semaphore* semaphore);
@@ -161,7 +160,7 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
 
       // Add to the task queue as a ValueRef
       struct value_config config = {0};
-      config.destroy = free; // Free the task_wc when deque removes it
+      config.destroy_data = free; // Free the task_wc when deque removes it
       
       if (pgmoneta_deque_add_with_config(workers->task_queue, NULL, (uintptr_t)task_wc, &config))
       {
