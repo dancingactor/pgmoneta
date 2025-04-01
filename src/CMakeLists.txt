@@ -323,3 +323,8 @@ endif()
 target_link_libraries(pgmoneta-walinfo-bin pgmoneta)
 
 install(TARGETS pgmoneta-walinfo-bin DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Add test_workers executable
+add_executable(test_workers test_workers.c)
+target_link_libraries(test_workers pgmoneta)
+
