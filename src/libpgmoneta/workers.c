@@ -147,19 +147,18 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
       memcpy(task_wc, wc, sizeof(struct worker_common));
       task_wc->function = function;
 
-      // Add to the task queue as a ValueRef
       struct value_config config = {0};
       config.destroy_data = destroy_data_wrapper; // define the task destroy function of the deque 
       
       pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task_wc, &config);
       
-      // Signal that a task is available
       semaphore_post(workers->has_tasks);
 
       return 0;
    }
 
 error:
+
    return 1;
 }
 
@@ -170,7 +169,7 @@ pgmoneta_workers_wait(struct workers* workers)
    {
       pthread_mutex_lock(&workers->worker_lock);
 
-      while (pgmoneta_deque_size(workers->queue) > 0 || workers->number_of_working)
+      while (pgmoneta_deque_size(workers->queue) || workers->number_of_working)
       {
          pthread_cond_wait(&workers->worker_all_idle, &workers->worker_lock);
       }
@@ -207,15 +206,8 @@ pgmoneta_workers_destroy(struct workers* workers)
          SLEEP(1000000000L);
       }
 
-      if (workers->queue != NULL)
-      {
-         pgmoneta_deque_destroy(workers->queue);
-      }
-
-      if (workers->has_tasks != NULL)
-      {
-         free(workers->has_tasks);
-      }
+      pgmoneta_deque_destroy(workers->queue);
+      free(workers->has_tasks);
 
       for (int n = 0; n < worker_total; n++)
       {
@@ -333,7 +325,6 @@ worker_do(struct worker* worker)
 {
    struct worker_common* task_wc;
    struct workers* workers = worker->workers;
-   char* tag = NULL;
 
    pthread_mutex_lock(&workers->worker_lock);
    workers->number_of_alive += 1;
@@ -349,20 +340,12 @@ worker_do(struct worker* worker)
          workers->number_of_working++;
          pthread_mutex_unlock(&workers->worker_lock);
 
-         // Get a task from the deque
-         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, &tag);
+         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, NULL);
          
          if (task_wc)
          {
-            // Execute the task function
             task_wc->function(task_wc);
             // Note: No need to free task_wc here since the deque's value_config.destroy will handle it
-         }
-
-         // If there are still tasks in the queue, post to semaphore
-         if (pgmoneta_deque_size(workers->queue) > 0)
-         {
-            semaphore_post(workers->has_tasks);
          }
 
          pthread_mutex_lock(&workers->worker_lock);
@@ -372,6 +355,7 @@ worker_do(struct worker* worker)
             pthread_cond_signal(&workers->worker_all_idle);
          }
          pthread_mutex_unlock(&workers->worker_lock);
+
       }
    }
    
