@@ -50,6 +50,7 @@ static int semaphore_init(struct semaphore* semaphore, int value);
 static void semaphore_post(struct semaphore* semaphore);
 static void semaphore_post_all(struct semaphore* semaphore);
 static void semaphore_wait(struct semaphore* semaphore);
+static void destroy_data_wrapper(uintptr_t data);
 
 int
 pgmoneta_workers_initialize(int num, struct workers** workers)
@@ -160,7 +161,7 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
 
       // Add to the task queue as a ValueRef
       struct value_config config = {0};
-      config.destroy_data = free; // Free the task_wc when deque removes it
+      config.destroy_data = destroy_data_wrapper; // define the task destroy function of the deque 
       
       if (pgmoneta_deque_add_with_config(workers->task_queue, NULL, (uintptr_t)task_wc, &config))
       {
@@ -425,14 +426,6 @@ error:
 }
 
 static void
-semaphore_reset(struct semaphore* semaphore)
-{
-   pthread_mutex_destroy(&(semaphore->mutex));
-   pthread_cond_destroy(&(semaphore->cond));
-   semaphore_init(semaphore, 0);
-}
-
-static void
 semaphore_post(struct semaphore* semaphore)
 {
    pthread_mutex_lock(&semaphore->mutex);
@@ -461,3 +454,10 @@ semaphore_wait(struct semaphore* semaphore)
    semaphore->value = 0;
    pthread_mutex_unlock(&semaphore->mutex);
 }
+
+static void
+destroy_data_wrapper(uintptr_t data)
+{
+   free((void*)data);
+}
+
