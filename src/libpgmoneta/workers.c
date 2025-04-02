@@ -78,7 +78,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    w->outcome = true;
 
    // Create task queue deque
-   if (pgmoneta_deque_create(true, &w->task_queue))
+   if (pgmoneta_deque_create(true, &w->queue))
    {
       pgmoneta_log_error("Could not allocate memory for queue");
       goto error;
@@ -126,9 +126,9 @@ error:
 
    if (w != NULL)
    {
-      if (w->task_queue != NULL)
+      if (w->queue != NULL)
       {
-         pgmoneta_deque_destroy(w->task_queue);
+         pgmoneta_deque_destroy(w->queue);
       }
       if (w->has_tasks != NULL)
       {
@@ -163,7 +163,7 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
       struct value_config config = {0};
       config.destroy_data = destroy_data_wrapper; // define the task destroy function of the deque 
       
-      pgmoneta_deque_add_with_config(workers->task_queue, NULL, (uintptr_t)task_wc, &config);
+      pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task_wc, &config);
       
       // Signal that a task is available
       semaphore_post(workers->has_tasks);
@@ -182,7 +182,7 @@ pgmoneta_workers_wait(struct workers* workers)
    {
       pthread_mutex_lock(&workers->worker_lock);
 
-      while (pgmoneta_deque_size(workers->task_queue) > 0 || workers->number_of_working)
+      while (pgmoneta_deque_size(workers->queue) > 0 || workers->number_of_working)
       {
          pthread_cond_wait(&workers->worker_all_idle, &workers->worker_lock);
       }
@@ -219,9 +219,9 @@ pgmoneta_workers_destroy(struct workers* workers)
          SLEEP(1000000000L);
       }
 
-      if (workers->task_queue != NULL)
+      if (workers->queue != NULL)
       {
-         pgmoneta_deque_destroy(workers->task_queue);
+         pgmoneta_deque_destroy(workers->queue);
       }
 
       if (workers->has_tasks != NULL)
@@ -362,7 +362,7 @@ worker_do(struct worker* worker)
          pthread_mutex_unlock(&workers->worker_lock);
 
          // Get a task from the deque
-         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->task_queue, &tag);
+         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, &tag);
          
          if (task_wc)
          {
@@ -372,7 +372,7 @@ worker_do(struct worker* worker)
          }
 
          // If there are still tasks in the queue, post to semaphore
-         if (pgmoneta_deque_size(workers->task_queue) > 0)
+         if (pgmoneta_deque_size(workers->queue) > 0)
          {
             semaphore_post(workers->has_tasks);
          }

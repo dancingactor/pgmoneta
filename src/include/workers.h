@@ -72,7 +72,7 @@ struct workers
    pthread_mutex_t worker_lock;    /**< The worker lock */
    pthread_cond_t worker_all_idle; /**< Are workers idle */
    bool outcome;                   /**< Outcome of the workers */
-   struct deque* task_queue;       /**< The task queue using deque */
+   struct deque* queue;       /**< The task queue using deque */
    struct semaphore* has_tasks;    /**< Are there any tasks ? */
 };
 
