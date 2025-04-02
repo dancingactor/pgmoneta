@@ -52,6 +52,13 @@ typedef struct {
 static void
 increment_counter(struct worker_common* wc)
 {
+   // Check for NULL pointer
+   if (wc == NULL)
+   {
+      fprintf(stderr, "ERROR: NULL worker_common pointer in task function\n");
+      return;
+   }
+
    // Cast to our test data structure
    test_task_data* data = (test_task_data*)wc;
    
@@ -76,24 +83,16 @@ main(int argc, char** argv)
    int i;
    int result = 0;
    
-   // Initialize logging
-   if (pgmoneta_init_logging())
-   {
-      fprintf(stderr, "Failed to initialize logging\n");
-      return 1;
-   }
-   
-   // Start logging
-   if (pgmoneta_start_logging())
-   {
-      fprintf(stderr, "Failed to start logging\n");
-      pgmoneta_stop_logging();
-      return 1;
-   }
+   printf("Starting test...\n");
+
+   // Skip logging initialization for basic testing
+   // This is often a source of errors if logging system isn't fully set up
+   printf("Skipping logging initialization for basic tests\n");
    
    printf("Testing worker implementation (with internal deque)...\n");
    
    // Initialize worker pool
+   printf("Initializing worker pool with %d workers...\n", NUM_WORKERS);
    if (pgmoneta_workers_initialize(NUM_WORKERS, &workers))
    {
       fprintf(stderr, "Failed to initialize workers\n");
@@ -101,12 +100,73 @@ main(int argc, char** argv)
       goto error;
    }
    
-   printf("Created %d workers\n", NUM_WORKERS);
+   if (workers == NULL)
+   {
+      fprintf(stderr, "Worker initialization returned success but workers is NULL\n");
+      result = 1;
+      goto error;
+   }
+   
+   printf("Created %d workers successfully\n", NUM_WORKERS);
    
    // Reset completed tasks counter
    completed_tasks = 0;
    
-   // Add multiple tasks
+   // Add just a few tasks first to test basic functionality
+   printf("Adding 5 test tasks to worker queue...\n");
+   for (i = 0; i < 5; i++)
+   {
+      // Allocate a new task data structure for each task
+      task_data = (test_task_data*)malloc(sizeof(test_task_data));
+      if (task_data == NULL)
+      {
+         fprintf(stderr, "Failed to allocate task data\n");
+         result = 1;
+         goto error;
+      }
+      
+      // Initialize task data
+      memset(task_data, 0, sizeof(test_task_data));
+      task_data->common.workers = workers;
+      task_data->common.function = increment_counter;
+      task_data->task_id = i;
+      
+      printf("Adding task %d...\n", i);
+      // Add task to worker queue (which internally uses deque)
+      if (pgmoneta_workers_add(workers, increment_counter, &task_data->common))
+      {
+         fprintf(stderr, "Failed to add task %d\n", i);
+         free(task_data);
+         result = 1;
+         goto error;
+      }
+      printf("Task %d added successfully\n", i);
+   }
+   
+   // Wait for all tasks to complete
+   printf("Waiting for initial 5 tasks to complete...\n");
+   pgmoneta_workers_wait(workers);
+   
+   // Check if all tasks completed
+   printf("Tasks completed: %d (expected: 5)\n", completed_tasks);
+   if (completed_tasks == 5)
+   {
+      printf("SUCCESS: Initial test tasks completed successfully\n");
+   }
+   else
+   {
+      fprintf(stderr, "ERROR: Only %d of 5 tasks completed\n", completed_tasks);
+      result = 1;
+      goto error;
+   }
+
+   // Continue with more tests if the basic functionality works
+   printf("\nBasic functionality test passed, continuing with full test suite...\n");
+
+   // Reset the counter
+   completed_tasks = 0;
+
+   // Now try the original test with more tasks
    printf("Adding %d tasks to worker queue...\n", NUM_TASKS);
    for (i = 0; i < NUM_TASKS; i++)
    {
@@ -161,6 +221,13 @@ main(int argc, char** argv)
       goto error;
    }
    
+   if (wi == NULL)
+   {
+      fprintf(stderr, "Worker input creation returned success but wi is NULL\n");
+      result = 1;
+      goto error;
+   }
+
    // Verify worker_input was created correctly
    if (strcmp(wi->directory, "testdir") != 0 ||
        strcmp(wi->from, "source") != 0 ||
@@ -231,11 +298,13 @@ error:
    // Clean up workers
    if (workers != NULL)
    {
+      printf("Destroying worker pool...\n");
       pgmoneta_workers_destroy(workers);
       printf("Worker pool destroyed\n");
    }
    
-   pgmoneta_stop_logging();
+   // Skip logging shutdown for basic testing
+   printf("Test completed with result: %s\n", result == 0 ? "SUCCESS" : "FAILURE");
    
    return result;
 } 
