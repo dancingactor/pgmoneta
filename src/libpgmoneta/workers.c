@@ -77,14 +77,8 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    w->number_of_working = 0;
    w->outcome = true;
 
-   // Create task queue deque
-   if (pgmoneta_deque_create(true, &w->queue))
-   {
-      pgmoneta_log_error("Could not allocate memory for queue");
-      goto error;
-   }
+   pgmoneta_deque_create(true, &w->queue)
 
-   // Initialize has_tasks semaphore
    w->has_tasks = (struct semaphore*)malloc(sizeof(struct semaphore));
    if (w->has_tasks == NULL)
    {
@@ -93,7 +87,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    }
 
    if (semaphore_init(w->has_tasks, 0))
-   {
+   {  
       pgmoneta_log_error("Could not initialize task semaphore");
       goto error;
    }
@@ -126,14 +120,8 @@ error:
 
    if (w != NULL)
    {
-      if (w->queue != NULL)
-      {
-         pgmoneta_deque_destroy(w->queue);
-      }
-      if (w->has_tasks != NULL)
-      {
-         free(w->has_tasks);
-      }
+      pgmoneta_deque_destroy(w->queue);
+      free(w->has_tasks);
       free(w);
    }
 
