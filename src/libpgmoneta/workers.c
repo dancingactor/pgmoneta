@@ -80,7 +80,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    // Create task queue deque
    if (pgmoneta_deque_create(true, &w->task_queue))
    {
-      pgmoneta_log_error("Could not allocate memory for task queue");
+      pgmoneta_log_error("Could not allocate memory for queue");
       goto error;
    }
 
@@ -163,13 +163,8 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
       struct value_config config = {0};
       config.destroy_data = destroy_data_wrapper; // define the task destroy function of the deque 
       
-      if (pgmoneta_deque_add_with_config(workers->task_queue, NULL, (uintptr_t)task_wc, &config))
-      {
-         pgmoneta_log_error("Could not add task to queue");
-         free(task_wc);
-         goto error;
-      }
-
+      pgmoneta_deque_add_with_config(workers->task_queue, NULL, (uintptr_t)task_wc, &config);
+      
       // Signal that a task is available
       semaphore_post(workers->has_tasks);
 
