@@ -77,7 +77,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    w->number_of_working = 0;
    w->outcome = true;
 
-   pgmoneta_deque_create(true, &w->queue)
+   pgmoneta_deque_create(true, &w->queue);
 
    w->has_tasks = (struct semaphore*)malloc(sizeof(struct semaphore));
    if (w->has_tasks == NULL)
