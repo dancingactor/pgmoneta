@@ -671,8 +671,6 @@ main(int argc, char** argv)
       ret = pgmoneta_read_main_configuration(shmem, "/etc/pgmoneta/pgmoneta.conf");
       if (ret)
       {
-         // Check if we need server connection before requiring host/port
-         // These commands can be executed locally without server connection
          int is_local_command = 0;
          if (optind < argc)
          {
@@ -748,7 +746,7 @@ main(int argc, char** argv)
    }
    else
    {
-      /* If it's a local command, we can proceed without a server connection */
+      /* Local command */
       if (!need_server_conn)
       {
          goto execute;
@@ -960,7 +958,6 @@ execute:
       }
       else
       {
-         // Use ZSTD as default compression when running locally without config
          uint8_t local_compression = config ? config->compression_type : COMPRESSION_CLIENT_ZSTD;
          exit_code = compress_data_client(parsed.args[0], local_compression);
       }
@@ -1580,7 +1577,6 @@ encrypt_data_client(char* from)
    to = pgmoneta_append(to, from);
    to = pgmoneta_append(to, ".aes");
 
-   // Always use AES-256-CBC (ENCRYPTION_AES_256_CBC) by default when running locally
    if (pgmoneta_encrypt_file(from, to))
    {
       pgmoneta_log_error("Encryption: File encryption failed: %s", from);
