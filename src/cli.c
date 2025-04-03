@@ -671,7 +671,18 @@ main(int argc, char** argv)
       ret = pgmoneta_read_main_configuration(shmem, "/etc/pgmoneta/pgmoneta.conf");
       if (ret)
       {
-         if (host == NULL || port == NULL)
+         int is_local_command = 0;
+         if (optind < argc)
+         {
+            char* cmd = argv[optind];
+            if (!strcmp(cmd, COMMAND_ENCRYPT) || !strcmp(cmd, COMMAND_DECRYPT) || 
+                !strcmp(cmd, COMMAND_COMPRESS) || !strcmp(cmd, COMMAND_DECOMPRESS))
+            {
+               is_local_command = 1;
+            }
+         }
+
+         if (!is_local_command && (host == NULL || port == NULL))
          {
             warnx("pgmoneta-cli: Missing required arguments: Both '--host' (-h) and '--port' (-p) must be provided.");
             exit(1);
@@ -735,6 +746,12 @@ main(int argc, char** argv)
    }
    else
    {
+      /* Local command */
+      if (!need_server_conn)
+      {
+         goto execute;
+      }
+      
       /* Remote connection */
       if (pgmoneta_connect(host, atoi(port), &socket))
       {
@@ -940,7 +957,8 @@ execute:
       }
       else
       {
-         exit_code = compress_data_client(parsed.args[0], config->compression_type);
+         uint8_t local_compression = config ? config->compression_type : COMPRESSION_CLIENT_ZSTD;
+         exit_code = compress_data_client(parsed.args[0], local_compression);
       }
    }
    else if (parsed.cmd->action == MANAGEMENT_INFO)
