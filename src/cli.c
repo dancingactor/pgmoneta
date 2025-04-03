@@ -716,6 +716,16 @@ main(int argc, char** argv)
 
    need_server_conn = parsed.cmd->action != MANAGEMENT_COMPRESS && parsed.cmd->action != MANAGEMENT_DECOMPRESS && parsed.cmd->action != MANAGEMENT_ENCRYPT && parsed.cmd->action != MANAGEMENT_DECRYPT;
 
+   // If we're running a standalone command that doesn't need server connection,
+   // skip the configuration loading and jump to execute
+   if (parsed.cmd->action == MANAGEMENT_COMPRESS || 
+       parsed.cmd->action == MANAGEMENT_DECOMPRESS || 
+       parsed.cmd->action == MANAGEMENT_ENCRYPT || 
+       parsed.cmd->action == MANAGEMENT_DECRYPT)
+   {
+      goto execute;
+   }
+
    if (configuration_path != NULL)
    {
       /* Local connection */
@@ -940,7 +950,9 @@ execute:
       }
       else
       {
-         exit_code = compress_data_client(parsed.args[0], config->compression_type);
+         // Use default COMPRESSION_CLIENT_ZSTD if config isn't loaded or unavailable
+         uint8_t comp_type = (config != NULL) ? config->compression_type : COMPRESSION_CLIENT_ZSTD;
+         exit_code = compress_data_client(parsed.args[0], comp_type);
       }
    }
    else if (parsed.cmd->action == MANAGEMENT_INFO)
@@ -1530,9 +1542,10 @@ decrypt_data_client(char* from)
 
    to = pgmoneta_remove_suffix(from, ".aes");
 
-   if (pgmoneta_decrypt_file(from, to))
+   // Use standalone decrypt function that doesn't rely on configuration
+   if (standalone_decrypt_file(from, to))
    {
-      pgmoneta_log_error("Decryption: File encryption failed: %s", from);
+      pgmoneta_log_error("Decryption: File decryption failed: %s", from);
       goto error;
    }
 
@@ -1558,7 +1571,8 @@ encrypt_data_client(char* from)
    to = pgmoneta_append(to, from);
    to = pgmoneta_append(to, ".aes");
 
-   if (pgmoneta_encrypt_file(from, to))
+   // Use standalone encrypt function that doesn't rely on configuration
+   if (standalone_encrypt_file(from, to))
    {
       pgmoneta_log_error("Encryption: File encryption failed: %s", from);
       goto error;
@@ -1684,9 +1698,17 @@ compress_data_client(char* from, uint8_t compression)
    }
    else
    {
-      pgmoneta_log_error("Compress: Unknown compression type: %d", compression);
-      goto error;
+      // If compression is unknown or NONE, default to ZSTD
+      to = pgmoneta_append(to, ".zstd");
+      if (pgmoneta_zstandardc_file(from, to))
+      {
+         pgmoneta_log_error("Compress: ZSTD compression failed");
+         goto error;
+      }
    }
+
+   // Delete the original file
+   pgmoneta_delete_file(from, NULL);
 
    free(to);
    return 0;
@@ -2645,7 +2667,7 @@ int_to_hex(uint32_t num)
 }
 
 static void
-translate_backup_argument(struct json* response)
+translate_backup_argument(struct json* j)
 {
    char* translated_valid = NULL;
    char* translated_compression = NULL;
@@ -2657,95 +2679,95 @@ translate_backup_argument(struct json* response)
    char* translated_wal = NULL;
    char* translated_delta = NULL;
 
-   translated_backup_size = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_BACKUP_SIZE));
+   translated_backup_size = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_BACKUP_SIZE));
    if (translated_backup_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_BACKUP_SIZE, (uintptr_t)translated_backup_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_BACKUP_SIZE, (uintptr_t)translated_backup_size, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_VALID))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_VALID))
    {
-      translated_valid = translate_valid((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_VALID));
+      translated_valid = translate_valid((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_VALID));
       if (translated_valid)
       {
-         pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_VALID, (uintptr_t)translated_valid, ValueString);
+         pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_VALID, (uintptr_t)translated_valid, ValueString);
       }
    }
-   translated_compression = translate_compression((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_COMPRESSION));
+   translated_compression = translate_compression((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_COMPRESSION));
    if (translated_compression)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_COMPRESSION, (uintptr_t)translated_compression, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_COMPRESSION, (uintptr_t)translated_compression, ValueString);
    }
-   translated_encryption = translate_encryption((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_ENCRYPTION));
+   translated_encryption = translate_encryption((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_ENCRYPTION));
    if (translated_encryption)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_ENCRYPTION, (uintptr_t)translated_encryption, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_ENCRYPTION, (uintptr_t)translated_encryption, ValueString);
    }
-   translated_restore_size = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_RESTORE_SIZE));
+   translated_restore_size = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_RESTORE_SIZE));
    if (translated_restore_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_RESTORE_SIZE, (uintptr_t)translated_restore_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_RESTORE_SIZE, (uintptr_t)translated_restore_size, ValueString);
    }
    translated_biggest_file_size =
-      pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_BIGGEST_FILE_SIZE));
+      pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_BIGGEST_FILE_SIZE));
    if (translated_restore_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_BIGGEST_FILE_SIZE, (uintptr_t)translated_biggest_file_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_BIGGEST_FILE_SIZE, (uintptr_t)translated_biggest_file_size, ValueString);
    }
-   translated_wal = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_WAL));
+   translated_wal = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_WAL));
    if (translated_wal)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_WAL, (uintptr_t)translated_wal, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_WAL, (uintptr_t)translated_wal, ValueString);
    }
-   translated_delta = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_DELTA));
+   translated_delta = pgmoneta_translate_file_size((int32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_DELTA));
    if (translated_delta)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_DELTA, (uintptr_t)translated_delta, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_DELTA, (uintptr_t)translated_delta, ValueString);
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_CHECKPOINT_HILSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_CHECKPOINT_LOLSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_START_HILSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_START_HILSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_START_HILSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_START_HILSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_START_HILSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_START_HILSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_START_LOLSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_START_LOLSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_START_LOLSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_START_LOLSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_START_LOLSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_START_LOLSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_END_HILSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_END_HILSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_END_HILSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_END_HILSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_END_HILSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_END_HILSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
 
-   if (pgmoneta_json_contains_key(response, MANAGEMENT_ARGUMENT_END_LOLSN))
+   if (pgmoneta_json_contains_key(j, MANAGEMENT_ARGUMENT_END_LOLSN))
    {
-      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_END_LOLSN));
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_END_LOLSN, (uintptr_t) translated_lsn, ValueString);
+      translated_lsn = int_to_hex((uint32_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_END_LOLSN));
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_END_LOLSN, (uintptr_t) translated_lsn, ValueString);
       free(translated_lsn);
       translated_lsn = NULL;
    }
@@ -2762,26 +2784,26 @@ translate_backup_argument(struct json* response)
 }
 
 static void
-translate_response_argument(struct json* response)
+translate_response_argument(struct json* j)
 {
    char* translated_total_space = NULL;
    char* translated_free_space = NULL;
    char* translated_used_space = NULL;
 
-   translated_total_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_TOTAL_SPACE));
+   translated_total_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_TOTAL_SPACE));
    if (translated_total_space)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_TOTAL_SPACE, (uintptr_t)translated_total_space, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_TOTAL_SPACE, (uintptr_t)translated_total_space, ValueString);
    }
-   translated_free_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_FREE_SPACE));
+   translated_free_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_FREE_SPACE));
    if (translated_free_space)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_FREE_SPACE, (uintptr_t)translated_free_space, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_FREE_SPACE, (uintptr_t)translated_free_space, ValueString);
    }
-   translated_used_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_USED_SPACE));
+   translated_used_space = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_USED_SPACE));
    if (translated_used_space)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_USED_SPACE, (uintptr_t)translated_used_space, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_USED_SPACE, (uintptr_t)translated_used_space, ValueString);
    }
 
    free(translated_total_space);
@@ -2790,44 +2812,44 @@ translate_response_argument(struct json* response)
 }
 
 static void
-translate_server_retention_argument(struct json* response, char* tag)
+translate_server_retention_argument(struct json* j, char* tag)
 {
-   if ((int32_t)pgmoneta_json_get(response, tag) < 0)
+   if ((int32_t)pgmoneta_json_get(j, tag) < 0)
    {
-      pgmoneta_json_put(response, tag, (uintptr_t)UNSPECIFIED, ValueString);
+      pgmoneta_json_put(j, tag, (uintptr_t)UNSPECIFIED, ValueString);
    }
 }
 
 static void
-translate_servers_argument(struct json* response)
+translate_servers_argument(struct json* j)
 {
    char* translated_workspace_size = NULL;
    char* translated_hotstandby_size = NULL;
    char* translated_server_size = NULL;
 
-   translated_workspace_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response,
+   translated_workspace_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j,
                                                                                        MANAGEMENT_ARGUMENT_WORKSPACE_FREE_SPACE));
    if (translated_workspace_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_WORKSPACE_FREE_SPACE, (uintptr_t)translated_workspace_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_WORKSPACE_FREE_SPACE, (uintptr_t)translated_workspace_size, ValueString);
    }
 
-   translated_hotstandby_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_HOT_STANDBY_SIZE));
+   translated_hotstandby_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_HOT_STANDBY_SIZE));
    if (translated_hotstandby_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_HOT_STANDBY_SIZE, (uintptr_t)translated_hotstandby_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_HOT_STANDBY_SIZE, (uintptr_t)translated_hotstandby_size, ValueString);
    }
 
-   translated_server_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(response, MANAGEMENT_ARGUMENT_SERVER_SIZE));
+   translated_server_size = pgmoneta_translate_file_size((int64_t)pgmoneta_json_get(j, MANAGEMENT_ARGUMENT_SERVER_SIZE));
    if (translated_server_size)
    {
-      pgmoneta_json_put(response, MANAGEMENT_ARGUMENT_SERVER_SIZE, (uintptr_t)translated_server_size, ValueString);
+      pgmoneta_json_put(j, MANAGEMENT_ARGUMENT_SERVER_SIZE, (uintptr_t)translated_server_size, ValueString);
    }
 
-   translate_server_retention_argument(response, MANAGEMENT_ARGUMENT_RETENTION_DAYS);
-   translate_server_retention_argument(response, MANAGEMENT_ARGUMENT_RETENTION_WEEKS);
-   translate_server_retention_argument(response, MANAGEMENT_ARGUMENT_RETENTION_MONTHS);
-   translate_server_retention_argument(response, MANAGEMENT_ARGUMENT_RETENTION_YEARS);
+   translate_server_retention_argument(j, MANAGEMENT_ARGUMENT_RETENTION_DAYS);
+   translate_server_retention_argument(j, MANAGEMENT_ARGUMENT_RETENTION_WEEKS);
+   translate_server_retention_argument(j, MANAGEMENT_ARGUMENT_RETENTION_MONTHS);
+   translate_server_retention_argument(j, MANAGEMENT_ARGUMENT_RETENTION_YEARS);
 
    free(translated_server_size);
    free(translated_hotstandby_size);
@@ -2835,7 +2857,7 @@ translate_servers_argument(struct json* response)
 }
 
 static void
-translate_configuration(struct json* response)
+translate_configuration(struct json* j)
 {
    char* translated_compression = NULL;
    char* translated_encryption = NULL;
@@ -2846,45 +2868,45 @@ translate_configuration(struct json* response)
    char* translated_log_level = NULL;
    char* translated_log_mode = NULL;
 
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_COMPRESSION))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_COMPRESSION))
    {
-      translated_compression = translate_compression((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_COMPRESSION));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_COMPRESSION, (uintptr_t)translated_compression, ValueString);
+      translated_compression = translate_compression((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_COMPRESSION));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_COMPRESSION, (uintptr_t)translated_compression, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_ENCRYPTION))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_ENCRYPTION))
    {
-      translated_encryption = translate_encryption((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_ENCRYPTION));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_ENCRYPTION, (uintptr_t)translated_encryption, ValueString);
+      translated_encryption = translate_encryption((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_ENCRYPTION));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_ENCRYPTION, (uintptr_t)translated_encryption, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_STORAGE_ENGINE))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_STORAGE_ENGINE))
    {
-      translated_storage_engine = translate_storage_engine((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_STORAGE_ENGINE));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_STORAGE_ENGINE, (uintptr_t)translated_storage_engine, ValueString);
+      translated_storage_engine = translate_storage_engine((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_STORAGE_ENGINE));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_STORAGE_ENGINE, (uintptr_t)translated_storage_engine, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_CREATE_SLOT))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_CREATE_SLOT))
    {
-      translated_create_slot = translate_create_slot((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_CREATE_SLOT));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_CREATE_SLOT, (uintptr_t)translated_create_slot, ValueString);
+      translated_create_slot = translate_create_slot((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_CREATE_SLOT));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_CREATE_SLOT, (uintptr_t)translated_create_slot, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_HUGEPAGE))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_HUGEPAGE))
    {
-      translated_hugepage = translate_hugepage((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_HUGEPAGE));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_HUGEPAGE, (uintptr_t)translated_hugepage, ValueString);
+      translated_hugepage = translate_hugepage((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_HUGEPAGE));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_HUGEPAGE, (uintptr_t)translated_hugepage, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_LOG_TYPE))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_LOG_TYPE))
    {
-      translated_log_type = translate_log_type((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_LOG_TYPE));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_LOG_TYPE, (uintptr_t)translated_log_type, ValueString);
+      translated_log_type = translate_log_type((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_LOG_TYPE));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_LOG_TYPE, (uintptr_t)translated_log_type, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_LOG_LEVEL))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_LOG_LEVEL))
    {
-      translated_log_level = translate_log_level((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_LOG_LEVEL));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_LOG_LEVEL, (uintptr_t)translated_log_level, ValueString);
+      translated_log_level = translate_log_level((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_LOG_LEVEL));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_LOG_LEVEL, (uintptr_t)translated_log_level, ValueString);
    }
-   if (pgmoneta_json_contains_key(response, CONFIGURATION_ARGUMENT_LOG_MODE))
+   if (pgmoneta_json_contains_key(j, CONFIGURATION_ARGUMENT_LOG_MODE))
    {
-      translated_log_mode = translate_log_mode((int32_t)pgmoneta_json_get(response, CONFIGURATION_ARGUMENT_LOG_MODE));
-      pgmoneta_json_put(response, CONFIGURATION_ARGUMENT_LOG_MODE, (uintptr_t)translated_log_mode, ValueString);
+      translated_log_mode = translate_log_mode((int32_t)pgmoneta_json_get(j, CONFIGURATION_ARGUMENT_LOG_MODE));
+      pgmoneta_json_put(j, CONFIGURATION_ARGUMENT_LOG_MODE, (uintptr_t)translated_log_mode, ValueString);
    }
 
    free(translated_compression);
@@ -3024,4 +3046,373 @@ translate_json_object(struct json* j)
          }
       }
    }
+}
+
+// Add new implementations of standalone encrypt/decrypt functions
+static int
+standalone_encrypt_file(char* from, char* to)
+{
+   // Try the standard pgmoneta_encrypt_file first
+   if (shmem != NULL && pgmoneta_encrypt_file(from, to) == 0)
+   {
+      // If successful delete the original file and return
+      pgmoneta_delete_file(from, NULL);
+      pgmoneta_permission(to, 6, 0, 0);
+      return 0;
+   }
+   
+   // If we got here, either shmem is NULL or there was an error
+   // We'll implement a standalone version using the master key
+   // with hardcoded AES-256-CBC (ENCRYPTION_AES_256_CBC = 1)
+   
+   unsigned char key[EVP_MAX_KEY_LENGTH];
+   unsigned char iv[EVP_MAX_IV_LENGTH];
+   char* master_key = NULL;
+   EVP_CIPHER_CTX* ctx = NULL;
+   const EVP_CIPHER* (* cipher_fp)(void) = &EVP_aes_256_cbc;
+   int cipher_block_size = 0;
+   int inbuf_size = 0;
+   int outbuf_size = 0;
+   FILE* in = NULL;
+   FILE* out = NULL;
+   int inl = 0;
+   int outl = 0;
+   int f_len = 0;
+   
+   #define ENC_BUF_SIZE (1024 * 1024)
+   
+   if (pgmoneta_get_master_key(&master_key))
+   {
+      pgmoneta_log_error("Standalone encryption: Failed to get master key");
+      goto error;
+   }
+   
+   cipher_block_size = EVP_CIPHER_block_size(cipher_fp());
+   inbuf_size = ENC_BUF_SIZE;
+   outbuf_size = inbuf_size + cipher_block_size - 1;
+   unsigned char inbuf[inbuf_size];
+   unsigned char outbuf[outbuf_size];
+   
+   memset(&key, 0, sizeof(key));
+   memset(&iv, 0, sizeof(iv));
+   
+   // Derive key and IV from master key for AES-256-CBC (mode 1)
+   if (pgmoneta_derive_key_iv(master_key, key, iv, ENCRYPTION_AES_256_CBC) != 0)
+   {
+      pgmoneta_log_error("Standalone encryption: Failed to derive key and IV");
+      goto error;
+   }
+   
+   if (!(ctx = EVP_CIPHER_CTX_new()))
+   {
+      pgmoneta_log_error("Standalone encryption: Failed to create context");
+      goto error;
+   }
+   
+   in = fopen(from, "rb");
+   if (in == NULL)
+   {
+      pgmoneta_log_error("Standalone encryption: Could not open %s", from);
+      goto error;
+   }
+   
+   out = fopen(to, "w");
+   if (out == NULL)
+   {
+      pgmoneta_log_error("Standalone encryption: Could not open %s", to);
+      goto error;
+   }
+   
+   if (EVP_CipherInit_ex(ctx, cipher_fp(), NULL, key, iv, 1) == 0)
+   {
+      pgmoneta_log_error("Standalone encryption: Failed to initialize context");
+      goto error;
+   }
+   
+   while ((inl = fread(inbuf, sizeof(char), inbuf_size, in)) > 0)
+   {
+      if (EVP_CipherUpdate(ctx, outbuf, &outl, inbuf, inl) == 0)
+      {
+         pgmoneta_log_error("Standalone encryption: Failed to process block");
+         goto error;
+      }
+      
+      if (fwrite(outbuf, sizeof(char), outl, out) != (size_t)outl)
+      {
+         pgmoneta_log_error("Standalone encryption: Failed to write cipher");
+         goto error;
+      }
+   }
+   
+   if (ferror(in))
+   {
+      pgmoneta_log_error("Standalone encryption: Error reading from file: %s", from);
+      goto error;
+   }
+   
+   if (EVP_CipherFinal_ex(ctx, outbuf, &f_len) == 0)
+   {
+      pgmoneta_log_error("Standalone encryption: Failed to finalize");
+      goto error;
+   }
+   
+   if (f_len)
+   {
+      if (fwrite(outbuf, sizeof(char), f_len, out) != (size_t)f_len)
+      {
+         pgmoneta_log_error("Standalone encryption: Failed to write final block");
+         goto error;
+      }
+   }
+   
+   if (ctx)
+   {
+      EVP_CIPHER_CTX_free(ctx);
+   }
+   
+   free(master_key);
+   fclose(in);
+   fclose(out);
+   
+   // Delete original file
+   pgmoneta_delete_file(from, NULL);
+   pgmoneta_permission(to, 6, 0, 0);
+   
+   return 0;
+   
+error:
+   if (ctx)
+   {
+      EVP_CIPHER_CTX_free(ctx);
+   }
+   
+   free(master_key);
+   
+   if (in != NULL)
+   {
+      fclose(in);
+   }
+   
+   if (out != NULL)
+   {
+      fclose(out);
+   }
+   
+   return 1;
+}
+
+static int
+standalone_decrypt_file(char* from, char* to)
+{
+   // Try the standard pgmoneta_decrypt_file first
+   if (shmem != NULL && pgmoneta_decrypt_file(from, to) == 0)
+   {
+      // If successful delete the original file and return
+      pgmoneta_delete_file(from, NULL);
+      return 0;
+   }
+   
+   // If we got here, either shmem is NULL or there was an error
+   // We'll implement a standalone version using the master key
+   // with hardcoded AES-256-CBC (ENCRYPTION_AES_256_CBC = 1)
+   
+   unsigned char key[EVP_MAX_KEY_LENGTH];
+   unsigned char iv[EVP_MAX_IV_LENGTH];
+   char* master_key = NULL;
+   EVP_CIPHER_CTX* ctx = NULL;
+   const EVP_CIPHER* (* cipher_fp)(void) = &EVP_aes_256_cbc;
+   int cipher_block_size = 0;
+   int inbuf_size = 0;
+   int outbuf_size = 0;
+   FILE* in = NULL;
+   FILE* out = NULL;
+   int inl = 0;
+   int outl = 0;
+   int f_len = 0;
+   
+   #define ENC_BUF_SIZE (1024 * 1024)
+   
+   if (pgmoneta_get_master_key(&master_key))
+   {
+      pgmoneta_log_error("Standalone decryption: Failed to get master key");
+      goto error;
+   }
+   
+   cipher_block_size = EVP_CIPHER_block_size(cipher_fp());
+   inbuf_size = ENC_BUF_SIZE;
+   outbuf_size = inbuf_size + cipher_block_size - 1;
+   unsigned char inbuf[inbuf_size];
+   unsigned char outbuf[outbuf_size];
+   
+   memset(&key, 0, sizeof(key));
+   memset(&iv, 0, sizeof(iv));
+   
+   // Derive key and IV from master key for AES-256-CBC (mode 1)
+   if (pgmoneta_derive_key_iv(master_key, key, iv, ENCRYPTION_AES_256_CBC) != 0)
+   {
+      pgmoneta_log_error("Standalone decryption: Failed to derive key and IV");
+      goto error;
+   }
+   
+   if (!(ctx = EVP_CIPHER_CTX_new()))
+   {
+      pgmoneta_log_error("Standalone decryption: Failed to create context");
+      goto error;
+   }
+   
+   in = fopen(from, "rb");
+   if (in == NULL)
+   {
+      pgmoneta_log_error("Standalone decryption: Could not open %s", from);
+      goto error;
+   }
+   
+   out = fopen(to, "w");
+   if (out == NULL)
+   {
+      pgmoneta_log_error("Standalone decryption: Could not open %s", to);
+      goto error;
+   }
+   
+   if (EVP_CipherInit_ex(ctx, cipher_fp(), NULL, key, iv, 0) == 0)
+   {
+      pgmoneta_log_error("Standalone decryption: Failed to initialize context");
+      goto error;
+   }
+   
+   while ((inl = fread(inbuf, sizeof(char), inbuf_size, in)) > 0)
+   {
+      if (EVP_CipherUpdate(ctx, outbuf, &outl, inbuf, inl) == 0)
+      {
+         pgmoneta_log_error("Standalone decryption: Failed to process block");
+         goto error;
+      }
+      
+      if (fwrite(outbuf, sizeof(char), outl, out) != (size_t)outl)
+      {
+         pgmoneta_log_error("Standalone decryption: Failed to write plaintext");
+         goto error;
+      }
+   }
+   
+   if (ferror(in))
+   {
+      pgmoneta_log_error("Standalone decryption: Error reading from file: %s", from);
+      goto error;
+   }
+   
+   if (EVP_CipherFinal_ex(ctx, outbuf, &f_len) == 0)
+   {
+      pgmoneta_log_error("Standalone decryption: Failed to finalize");
+      goto error;
+   }
+   
+   if (f_len)
+   {
+      if (fwrite(outbuf, sizeof(char), f_len, out) != (size_t)f_len)
+      {
+         pgmoneta_log_error("Standalone decryption: Failed to write final block");
+         goto error;
+      }
+   }
+   
+   if (ctx)
+   {
+      EVP_CIPHER_CTX_free(ctx);
+   }
+   
+   free(master_key);
+   fclose(in);
+   fclose(out);
+   
+   // Delete original file
+   pgmoneta_delete_file(from, NULL);
+   
+   return 0;
+   
+error:
+   if (ctx)
+   {
+      EVP_CIPHER_CTX_free(ctx);
+   }
+   
+   free(master_key);
+   
+   if (in != NULL)
+   {
+      fclose(in);
+   }
+   
+   if (out != NULL)
+   {
+      fclose(out);
+   }
+   
+   return 1;
+}
+
+static int
+pgmoneta_derive_key_iv(char* password, unsigned char* key, unsigned char* iv, int mode)
+{
+   EVP_CIPHER_CTX* ctx = NULL;
+   const EVP_CIPHER* (*cipher_fp)(void) = NULL;
+   unsigned char iv_tmp[EVP_MAX_IV_LENGTH];
+
+   if (mode == ENCRYPTION_AES_256_CBC)
+   {
+      cipher_fp = &EVP_aes_256_cbc;
+   }
+   else if (mode == ENCRYPTION_AES_192_CBC)
+   {
+      cipher_fp = &EVP_aes_192_cbc;
+   }
+   else if (mode == ENCRYPTION_AES_128_CBC)
+   {
+      cipher_fp = &EVP_aes_128_cbc;
+   }
+   else if (mode == ENCRYPTION_AES_256_CTR)
+   {
+      cipher_fp = &EVP_aes_256_ctr;
+   }
+   else if (mode == ENCRYPTION_AES_192_CTR)
+   {
+      cipher_fp = &EVP_aes_192_ctr;
+   }
+   else if (mode == ENCRYPTION_AES_128_CTR)
+   {
+      cipher_fp = &EVP_aes_128_ctr;
+   }
+   else
+   {
+      cipher_fp = &EVP_aes_256_cbc;
+   }
+
+   ctx = EVP_CIPHER_CTX_new();
+   if (ctx == NULL)
+   {
+      goto error;
+   }
+
+   // Use password hash as key and IV
+   memset(iv_tmp, 0, EVP_MAX_IV_LENGTH);
+   if (!EVP_BytesToKey(cipher_fp(), EVP_md5(), NULL, (unsigned char*)password, strlen(password), 1, key, iv_tmp))
+   {
+      goto error;
+   }
+
+   // Copy IV if not NULL
+   if (iv)
+   {
+      memcpy(iv, iv_tmp, EVP_CIPHER_iv_length(cipher_fp()));
+   }
+
+   EVP_CIPHER_CTX_free(ctx);
+   return 0;
+
+error:
+   if (ctx)
+   {
+      EVP_CIPHER_CTX_free(ctx);
+   }
+   return 1;
 }
