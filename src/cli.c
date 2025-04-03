@@ -671,7 +671,20 @@ main(int argc, char** argv)
       ret = pgmoneta_read_main_configuration(shmem, "/etc/pgmoneta/pgmoneta.conf");
       if (ret)
       {
-         if (host == NULL || port == NULL)
+         // Check if we need server connection before requiring host/port
+         // These commands can be executed locally without server connection
+         int is_local_command = 0;
+         if (optind < argc)
+         {
+            char* cmd = argv[optind];
+            if (!strcmp(cmd, COMMAND_ENCRYPT) || !strcmp(cmd, COMMAND_DECRYPT) || 
+                !strcmp(cmd, COMMAND_COMPRESS) || !strcmp(cmd, COMMAND_DECOMPRESS))
+            {
+               is_local_command = 1;
+            }
+         }
+
+         if (!is_local_command && (host == NULL || port == NULL))
          {
             warnx("pgmoneta-cli: Missing required arguments: Both '--host' (-h) and '--port' (-p) must be provided.");
             exit(1);
@@ -735,6 +748,12 @@ main(int argc, char** argv)
    }
    else
    {
+      /* If it's a local command, we can proceed without a server connection */
+      if (!need_server_conn)
+      {
+         goto execute;
+      }
+      
       /* Remote connection */
       if (pgmoneta_connect(host, atoi(port), &socket))
       {
@@ -918,6 +937,7 @@ execute:
       }
       else
       {
+         // Set default encryption to AES-256-CBC when running locally without config
          exit_code = encrypt_data_client(parsed.args[0]);
       }
    }
@@ -940,7 +960,9 @@ execute:
       }
       else
       {
-         exit_code = compress_data_client(parsed.args[0], config->compression_type);
+         // Use ZSTD as default compression when running locally without config
+         uint8_t local_compression = config ? config->compression_type : COMPRESSION_CLIENT_ZSTD;
+         exit_code = compress_data_client(parsed.args[0], local_compression);
       }
    }
    else if (parsed.cmd->action == MANAGEMENT_INFO)
@@ -1558,6 +1580,7 @@ encrypt_data_client(char* from)
    to = pgmoneta_append(to, from);
    to = pgmoneta_append(to, ".aes");
 
+   // Always use AES-256-CBC (ENCRYPTION_AES_256_CBC) by default when running locally
    if (pgmoneta_encrypt_file(from, to))
    {
       pgmoneta_log_error("Encryption: File encryption failed: %s", from);
