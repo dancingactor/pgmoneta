@@ -82,6 +82,9 @@
 #define COMMAND_CLEAR "clear"
 #define COMMAND_INFO "info"
 #define COMMAND_ANNOTATE "annotate"
+#define COMMAND_ONLINE "online"
+#define COMMAND_OFFLINE "offline"
+#define COMMAND_STANDARD "standard"
 
 #define OUTPUT_FORMAT_JSON "json"
 #define OUTPUT_FORMAT_TEXT "text"
@@ -108,6 +111,8 @@ static void help_conf(void);
 static void help_clear(void);
 static void help_info(void);
 static void help_annotate(void);
+static void help_online(void);
+static void help_offline(void);
 static void display_helper(char* command);
 
 static int backup(SSL* ssl, int socket, char* server, uint8_t compression, uint8_t encryption, char* incremental, int32_t output_format);
@@ -133,10 +138,12 @@ static int encrypt_data_server(SSL* ssl, int socket, char* path, uint8_t compres
 static int decompress_data_server(SSL* ssl, int socket, char* path, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int compress_data_server(SSL* ssl, int socket, char* path, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int info(SSL* ssl, int socket, char* server, char* backup, uint8_t compression, uint8_t encryption, int32_t output_format);
-static int annotate(SSL* ssl, int socket, char* server, char* backup, char* command, char* key, char* comment, uint8_t compression, uint8_t encryption, int32_t output_format);
+static int annotate(SSL* ssl, int socket, char* server, char* backup, char* action, char* key, char* comment, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int conf_ls(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int conf_get(SSL* ssl, int socket, char* config_key, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int conf_set(SSL* ssl, int socket, char* config_key, char* config_value, uint8_t compression, uint8_t encryption, int32_t output_format);
+static int online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
+static int offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 
 static int process_result(SSL* ssl, int socket, int32_t output_format);
 static int process_get_result(SSL* ssl, int socket, char* param, int32_t output_format);
@@ -224,6 +231,8 @@ usage(void)
    printf("  shutdown                 Shutdown pgmoneta\n");
    printf("  status [details]         Status of pgmoneta, with optional details\n");
    printf("  verify                   Verify a backup from a server\n");
+   printf("  online                   Switch to online mode\n");
+   printf("  offline                  Switch to offline mode\n");
    printf("\n");
    printf("pgmoneta: %s\n", PGMONETA_HOMEPAGE);
    printf("Report bugs: %s\n", PGMONETA_ISSUES);
@@ -413,7 +422,9 @@ struct pgmoneta_command command_table[] = {
       .action = MANAGEMENT_ANNOTATE,
       .deprecated = false,
       .log_message = "<annotate> [%s]"
-   }
+   },
+   {"online", "Switch to online mode", NULL, MANAGEMENT_ONLINE, "-h"},
+   {"offline", "Switch to offline mode", NULL, MANAGEMENT_OFFLINE, "-h"},
 };
 
 int
@@ -977,6 +988,14 @@ execute:
    {
       exit_code = conf_set(s_ssl, socket, parsed.args[0], parsed.args[1], compression, encryption, output_format);
    }
+   else if (parsed.cmd->action == MANAGEMENT_ONLINE)
+   {
+      exit_code = online(s_ssl, socket, compression, encryption, output_format);
+   }
+   else if (parsed.cmd->action == MANAGEMENT_OFFLINE)
+   {
+      exit_code = offline(s_ssl, socket, compression, encryption, output_format);
+   }
 
 done:
 
@@ -1154,6 +1173,20 @@ help_annotate(void)
 }
 
 static void
+help_online(void)
+{
+   printf("Switch to online mode\n");
+   printf("  pgmoneta-cli online\n");
+}
+
+static void
+help_offline(void)
+{
+   printf("Switch to offline mode\n");
+   printf("  pgmoneta-cli offline\n");
+}
+
+static void
 display_helper(char* command)
 {
    if (!strcmp(command, COMMAND_BACKUP))
@@ -1231,6 +1264,14 @@ display_helper(char* command)
    else if (!strcmp(command, COMMAND_ANNOTATE))
    {
       help_annotate();
+   }
+   else if (!strcmp(command, COMMAND_ONLINE))
+   {
+      help_online();
+   }
+   else if (!strcmp(command, COMMAND_OFFLINE))
+   {
+      help_offline();
    }
    else
    {
@@ -2402,6 +2443,12 @@ translate_command(int32_t cmd_code)
          command_output = pgmoneta_append_char(command_output, ' ');
          command_output = pgmoneta_append(command_output, "set");
          break;
+      case MANAGEMENT_ONLINE:
+         command_output = pgmoneta_append(command_output, "online");
+         break;
+      case MANAGEMENT_OFFLINE:
+         command_output = pgmoneta_append(command_output, "offline");
+         break;
       default:
          break;
    }
@@ -3031,4 +3078,44 @@ translate_json_object(struct json* j)
          }
       }
    }
+}
+
+static int
+online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format)
+{
+   if (pgmoneta_management_request_online(ssl, socket, compression, encryption, output_format))
+   {
+      goto error;
+   }
+
+   if (process_result(ssl, socket, output_format))
+   {
+      goto error;
+   }
+
+   return 0;
+
+error:
+
+   return 1;
+}
+
+static int
+offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format)
+{
+   if (pgmoneta_management_request_offline(ssl, socket, compression, encryption, output_format))
+   {
+      goto error;
+   }
+
+   if (process_result(ssl, socket, output_format))
+   {
+      goto error;
+   }
+
+   return 0;
+
+error:
+
+   return 1;
 }

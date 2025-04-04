@@ -83,12 +83,13 @@ extern "C" {
 #define MANAGEMENT_CONF_LS        21
 #define MANAGEMENT_CONF_GET       22
 #define MANAGEMENT_CONF_SET       23
-
-#define MANAGEMENT_MASTER_KEY     24
-#define MANAGEMENT_ADD_USER       25
-#define MANAGEMENT_UPDATE_USER    26
-#define MANAGEMENT_REMOVE_USER    27
-#define MANAGEMENT_LIST_USERS     28
+#define MANAGEMENT_ONLINE         24
+#define MANAGEMENT_OFFLINE        25
+#define MANAGEMENT_MASTER_KEY     26
+#define MANAGEMENT_ADD_USER       27
+#define MANAGEMENT_UPDATE_USER    28
+#define MANAGEMENT_REMOVE_USER    29
+#define MANAGEMENT_LIST_USERS     30
 
 /**
  * Management categories
@@ -767,6 +768,52 @@ pgmoneta_management_read_json(SSL* ssl, int socket, uint8_t* compression, uint8_
  */
 int
 pgmoneta_management_write_json(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, struct json* json);
+
+/**
+ * Request annotate
+ * @param ssl           The SSL connection
+ * @param socket        The socket descriptor
+ * @param server        The server
+ * @param backup_id     The backup id
+ * @param action        The action
+ * @param key           The key
+ * @param comment       The comment
+ * @param compression   The compression
+ * @param encryption    The encryption
+ * @param output_format The output format
+ * @return 0 upon success, otherwise 1
+ */
+int pgmoneta_management_request_annotate(SSL* ssl, int socket, char* server, char* backup_id, char* action, char* key, char* comment, uint8_t compression, uint8_t encryption, int32_t output_format);
+
+/**
+ * Request online mode
+ * @param ssl           The SSL connection
+ * @param socket        The socket descriptor
+ * @param compression   The compression
+ * @param encryption    The encryption
+ * @param output_format The output format
+ * @return 0 upon success, otherwise 1
+ */
+int pgmoneta_management_request_online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
+
+/**
+ * Request offline mode
+ * @param ssl           The SSL connection
+ * @param socket        The socket descriptor
+ * @param compression   The compression
+ * @param encryption    The encryption
+ * @param output_format The output format
+ * @return 0 upon success, otherwise 1
+ */
+int pgmoneta_management_request_offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
+
+#define MANAGEMENT_ERROR_INFO_NOSERVER                   73
+#define MANAGEMENT_ERROR_INFO_UNKNOWN                     74
+#define MANAGEMENT_ERROR_ANNOTATE_NOFORK                  75
+#define MANAGEMENT_ERROR_ANNOTATE_NOSERVER                76
+#define MANAGEMENT_ERROR_ANNOTATE_UNKNOWN                 77
+#define MANAGEMENT_ERROR_ONLINE_FAILED                    78
+#define MANAGEMENT_ERROR_OFFLINE_FAILED                   79
 
 #ifdef __cplusplus
 }

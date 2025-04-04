@@ -1609,6 +1609,99 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
          goto error;
       }
    }
+   else if (id == MANAGEMENT_ONLINE)
+   {
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+#endif
+
+      if (offline)
+      {
+         pgmoneta_log_info("Switching to online mode");
+
+         /* Start to retrieve WAL */
+         init_receivewals();
+
+         /* Start to validate server configuration */
+         ev_periodic_init (&valid, valid_cb, 0., 600, 0);
+         ev_periodic_start (main_loop, &valid);
+
+         /* Start to verify WAL streaming */
+         ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
+         ev_periodic_start (main_loop, &wal_streaming);
+
+         /* Start WAL compression */
+         if (config->compression_type != COMPRESSION_NONE ||
+             config->encryption != ENCRYPTION_NONE)
+         {
+            ev_periodic_init(&wal, wal_cb, 0., 60, 0);
+            ev_periodic_start(main_loop, &wal);
+         }
+
+         /* Start backup retention policy */
+         ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
+         ev_periodic_start(main_loop, &retention);
+
+         offline = false;
+      }
+      else
+      {
+         pgmoneta_log_debug("System already in online mode");
+      }
+
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+#endif
+
+      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   }
+   else if (id == MANAGEMENT_OFFLINE)
+   {
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+#endif
+
+      if (!offline)
+      {
+         pgmoneta_log_info("Switching to offline mode");
+
+         /* Stop WAL streaming verification */
+         ev_periodic_stop(main_loop, &wal_streaming);
+
+         /* Stop validation */
+         ev_periodic_stop(main_loop, &valid);
+
+         /* Stop WAL compression if running */
+         if (config->compression_type != COMPRESSION_NONE ||
+             config->encryption != ENCRYPTION_NONE)
+         {
+            ev_periodic_stop(main_loop, &wal);
+         }
+
+         /* Stop backup retention policy */
+         ev_periodic_stop(main_loop, &retention);
+
+         offline = true;
+      }
+      else
+      {
+         pgmoneta_log_debug("System already in offline mode");
+      }
+
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+#endif
+
+      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   }
    else
    {
       pgmoneta_management_response_error(NULL, client_fd, NULL, MANAGEMENT_ERROR_UNKNOWN_COMMAND, NAME, compression, encryption, payload);
