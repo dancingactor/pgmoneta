@@ -265,17 +265,17 @@ pgmoneta_create_worker_input(char* directory, char* from, char* to, int level,
 
    if (directory != NULL && strlen(directory) > 0)
    {
-      memcpy(w->directory, directory, strlen(directory));
+      snprintf(w->directory, sizeof(w->directory), "%s", directory);
    }
 
    if (from != NULL && strlen(from) > 0)
    {
-      memcpy(w->from, from, strlen(from));
+      snprintf(w->from, sizeof(w->from), "%s", from);
    }
 
    if (to != NULL && strlen(to) > 0)
    {
-      memcpy(w->to, to, strlen(to));
+      snprintf(w->to, sizeof(w->to), "%s", to);
    }
 
    w->level = level;
