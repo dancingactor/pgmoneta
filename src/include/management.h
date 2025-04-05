@@ -1,19 +1,19 @@
-/*
+/* 
  * Copyright (C) 2025 The pgmoneta community
  *
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this list
- * of conditions and the following disclaimer.
+ *    of conditions and the following disclaimer.
  *
  * 2. Redistributions in binary form must reproduce the above copyright notice, this
- * list of conditions and the following disclaimer in the documentation and/or other
- * materials provided with the distribution.
+ *    list of conditions and the following disclaimer in the documentation and/or other
+ *    materials provided with the distribution.
  *
  * 3. Neither the name of the copyright holder nor the names of its contributors may
- * be used to endorse or promote products derived from this software without specific
- * prior written permission.
+ *    be used to endorse or promote products derived from this software without specific
+ *    prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
@@ -39,7 +39,6 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdlib.h>
-
 #include <openssl/ssl.h>
 
 /**
@@ -83,13 +82,12 @@ extern "C" {
 #define MANAGEMENT_CONF_LS        21
 #define MANAGEMENT_CONF_GET       22
 #define MANAGEMENT_CONF_SET       23
-#define MANAGEMENT_ONLINE         24
-#define MANAGEMENT_OFFLINE        25
-#define MANAGEMENT_MASTER_KEY     26
-#define MANAGEMENT_ADD_USER       27
-#define MANAGEMENT_UPDATE_USER    28
-#define MANAGEMENT_REMOVE_USER    29
-#define MANAGEMENT_LIST_USERS     30
+
+#define MANAGEMENT_MASTER_KEY     24
+#define MANAGEMENT_ADD_USER       25
+#define MANAGEMENT_UPDATE_USER    26
+#define MANAGEMENT_REMOVE_USER    27
+#define MANAGEMENT_LIST_USERS     28
 
 /**
  * Management categories
@@ -117,14 +115,12 @@ extern "C" {
 #define MANAGEMENT_ARGUMENT_COMMENT               "Comment"
 #define MANAGEMENT_ARGUMENT_COMMENTS              "Comments"
 #define MANAGEMENT_ARGUMENT_COMPRESSION           "Compression"
-#define MANAGEMENT_ARGUMENT_COMPRESSION           "Compression"
 #define MANAGEMENT_ARGUMENT_CONFIG_KEY            "ConfigKey"
 #define MANAGEMENT_ARGUMENT_CONFIG_VALUE          "ConfigValue"
 #define MANAGEMENT_ARGUMENT_DELTA                 "Delta"
 #define MANAGEMENT_ARGUMENT_DESTINATION_FILE      "DestinationFile"
 #define MANAGEMENT_ARGUMENT_DIRECTORY             "Directory"
 #define MANAGEMENT_ARGUMENT_ELAPSED               "Elapsed"
-#define MANAGEMENT_ARGUMENT_ENCRYPTION            "Encryption"
 #define MANAGEMENT_ARGUMENT_ENCRYPTION            "Encryption"
 #define MANAGEMENT_ARGUMENT_END_HILSN             "EndHiLSN"
 #define MANAGEMENT_ARGUMENT_END_LOLSN             "EndLoLSN"
@@ -179,7 +175,7 @@ extern "C" {
 #define MANAGEMENT_ARGUMENT_WORKSPACE_FREE_SPACE  "WorkspaceFreeSpace"
 
 /**
- * Management error
+ * Management error codes
  */
 #define MANAGEMENT_ERROR_BAD_PAYLOAD     1
 #define MANAGEMENT_ERROR_UNKNOWN_COMMAND 2
@@ -734,7 +730,7 @@ pgmoneta_management_response_ok(SSL* ssl, int socket, struct timespec start_time
  */
 int
 pgmoneta_management_response_error(SSL* ssl, int socket, char* server, int32_t error, char* workflow,
-                                   uint8_t compression, uint8_t encryption, struct json* payload);
+                                     uint8_t compression, uint8_t encryption, struct json* payload);
 
 /**
  * Create a response
@@ -768,52 +764,6 @@ pgmoneta_management_read_json(SSL* ssl, int socket, uint8_t* compression, uint8_
  */
 int
 pgmoneta_management_write_json(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, struct json* json);
-
-/**
- * Request annotate
- * @param ssl           The SSL connection
- * @param socket        The socket descriptor
- * @param server        The server
- * @param backup_id     The backup id
- * @param action        The action
- * @param key           The key
- * @param comment       The comment
- * @param compression   The compression
- * @param encryption    The encryption
- * @param output_format The output format
- * @return 0 upon success, otherwise 1
- */
-int pgmoneta_management_request_annotate(SSL* ssl, int socket, char* server, char* backup_id, char* action, char* key, char* comment, uint8_t compression, uint8_t encryption, int32_t output_format);
-
-/**
- * Request online mode
- * @param ssl           The SSL connection
- * @param socket        The socket descriptor
- * @param compression   The compression
- * @param encryption    The encryption
- * @param output_format The output format
- * @return 0 upon success, otherwise 1
- */
-int pgmoneta_management_request_online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
-
-/**
- * Request offline mode
- * @param ssl           The SSL connection
- * @param socket        The socket descriptor
- * @param compression   The compression
- * @param encryption    The encryption
- * @param output_format The output format
- * @return 0 upon success, otherwise 1
- */
-int pgmoneta_management_request_offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
-
-#define MANAGEMENT_ERROR_INFO_NOSERVER                   73
-#define MANAGEMENT_ERROR_INFO_UNKNOWN                     74
-#define MANAGEMENT_ERROR_ANNOTATE_NOFORK                  75
-#define MANAGEMENT_ERROR_ANNOTATE_NOSERVER                76
-#define MANAGEMENT_ERROR_ANNOTATE_UNKNOWN                 77
-#define MANAGEMENT_ERROR_ONLINE_FAILED                    78
-#define MANAGEMENT_ERROR_OFFLINE_FAILED                   79
 
 #ifdef __cplusplus
 }
