@@ -84,6 +84,11 @@
 #define MAX_FDS 64
 #define OFFLINE 1000
 
+#define VALID_SLOT 0
+#define SLOT_NOT_FOUND 1
+#define INCORRECT_SLOT_TYPE 2
+#define SLOT_ACTIVE 3
+
 static void accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents);
 static void accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents);
 static void accept_management_cb(struct ev_loop* loop, struct ev_io* watcher, int revents);
@@ -1609,77 +1614,6 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
          goto error;
       }
    }
-   else if (id == MANAGEMENT_ONLINE)
-   {
-#ifdef HAVE_FREEBSD
-   clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
-#else
-   clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
-#endif
-
-   if (offline)
-   {
-      pgmoneta_log_info("Switching to online mode");
-
-      /* Reset WAL streaming status on all servers */
-      for (int i = 0; i < config->common.number_of_servers; i++)
-      {
-         config->common.servers[i].wal_streaming = false;
-      }
-
-      /* Start WAL streaming */
-      init_receivewals();
-
-      /* Give WAL streaming time to start */
-      sleep(2);
-
-      /* Start to validate server configuration */
-      ev_periodic_init (&valid, valid_cb, 0., 600, 0);
-      ev_periodic_start (main_loop, &valid);
-
-      /* Start to verify WAL streaming */
-      ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
-      ev_periodic_start (main_loop, &wal_streaming);
-
-      /* Start WAL compression */
-      if (config->compression_type != COMPRESSION_NONE ||
-          config->encryption != ENCRYPTION_NONE)
-      {
-         ev_periodic_init(&wal, wal_cb, 0., 60, 0);
-         ev_periodic_start(main_loop, &wal);
-      }
-
-      /* Start backup retention policy */
-      ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
-      ev_periodic_start(main_loop, &retention);
-
-      if (init_replication_slots())
-      {
-         pgmoneta_log_error("Failed to reinitialize replication slots");
-         /* Continue anyway - we might not need slots immediately */
-      }
-
-      offline = false;
-      
-      /* Force a server info update for all servers */
-      for (int i = 0; i < config->common.number_of_servers; i++)
-      {
-         pgmoneta_server_info(i);
-      }
-   }
-   else
-   {
-      pgmoneta_log_debug("System already in online mode");
-   }
-
-#ifdef HAVE_FREEBSD
-   clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
-#else
-   clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
-#endif
-
-   pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
-   }
    else if (id == MANAGEMENT_OFFLINE)
    {
 #ifdef HAVE_FREEBSD
@@ -1721,14 +1655,116 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
          pgmoneta_set_proc_title(1, argv_ptr, "kill wal", "");
          snprintf(cmd, sizeof(cmd), "pkill -f 'pgmoneta.*wal'");
          system(cmd);
+         
+         /* Allow some time for processes to terminate */
+         sleep(2);
+         
+         /* Force kill any remaining processes (in case normal kill wasn't enough) */
+         snprintf(cmd, sizeof(cmd), "pkill -9 -f 'pgmoneta.*wal'");
+         system(cmd);
+         
          exit(0);
       }
+      
+      /* Give processes time to fully terminate */
+      sleep(3);
 
       offline = true;
+      
+      pgmoneta_log_debug("Switched to offline mode successfully");
    }
    else
    {
       pgmoneta_log_debug("System already in offline mode");
+   }
+
+#ifdef HAVE_FREEBSD
+   clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+#else
+   clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+#endif
+
+   pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   }
+   else if (id == MANAGEMENT_ONLINE)
+   {
+#ifdef HAVE_FREEBSD
+   clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+#else
+   clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+#endif
+
+   if (offline)
+   {
+      pgmoneta_log_info("Switching to online mode");
+
+      /* Reset WAL streaming status on all servers */
+      for (int i = 0; i < config->common.number_of_servers; i++)
+      {
+         config->common.servers[i].wal_streaming = false;
+      }
+      
+      /* Ensure any lingering WAL processes are terminated */
+      if (fork() == 0)
+      {
+         char cmd[256];
+         pgmoneta_set_proc_title(1, argv_ptr, "cleanup wal", "");
+         snprintf(cmd, sizeof(cmd), "pkill -9 -f 'pgmoneta.*wal'");
+         system(cmd);
+         exit(0);
+      }
+      
+      /* Give processes time to fully terminate */
+      sleep(3);
+
+      /* First create/verify replication slots */
+      if (init_replication_slots())
+      {
+         pgmoneta_log_error("Failed to initialize replication slots - continuing anyway");
+      }
+      
+      /* Allow some time for replication slots to settle */
+      sleep(2);
+
+      /* Start WAL streaming */
+      init_receivewals();
+
+      /* Give WAL streaming time to start */
+      sleep(3);
+
+      /* Start to validate server configuration */
+      ev_periodic_init (&valid, valid_cb, 0., 600, 0);
+      ev_periodic_start (main_loop, &valid);
+
+      /* Start to verify WAL streaming */
+      ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
+      ev_periodic_start (main_loop, &wal_streaming);
+
+      /* Start WAL compression */
+      if (config->compression_type != COMPRESSION_NONE ||
+          config->encryption != ENCRYPTION_NONE)
+      {
+         ev_periodic_init(&wal, wal_cb, 0., 60, 0);
+         ev_periodic_start(main_loop, &wal);
+      }
+
+      /* Start backup retention policy */
+      ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
+      ev_periodic_start(main_loop, &retention);
+
+      offline = false;
+      
+      /* Force a server info update for all servers */
+      for (int i = 0; i < config->common.number_of_servers; i++)
+      {
+         pgmoneta_server_info(i);
+      }
+      
+      pgmoneta_log_debug("Switched to online mode successfully");
+   }
+   else
+   {
+      pgmoneta_log_debug("System already in online mode");
    }
 
 #ifdef HAVE_FREEBSD
@@ -2253,12 +2289,16 @@ static void
 init_receivewals(void)
 {
    int active = 0;
+   int retry_count = 0;
+   int max_retries = 3;
    struct main_configuration* config;
 
    config = (struct main_configuration*)shmem;
 
    pgmoneta_log_debug("Starting WAL streaming for %d servers", config->common.number_of_servers);
 
+retry:
+   active = 0;
    for (int i = 0; i < config->common.number_of_servers; i++)
    {
       /* Only start WAL streaming for primary servers (no follow) */
@@ -2299,7 +2339,15 @@ init_receivewals(void)
 
    if (active == 0)
    {
-      pgmoneta_log_error("No active WAL streaming - no eligible servers found");
+      if (retry_count < max_retries) 
+      {
+         pgmoneta_log_warn("No active WAL streaming - retrying in 3 seconds (attempt %d of %d)", 
+                          retry_count + 1, max_retries);
+         sleep(3);
+         retry_count++;
+         goto retry;
+      }
+      pgmoneta_log_error("No active WAL streaming after %d attempts - no eligible servers found", max_retries);
    }
    else
    {
@@ -2316,10 +2364,15 @@ init_replication_slots(void)
    SSL* ssl = NULL;
    int socket;
    int ret = 0;
+   int max_retries = 3;
+   int retries = 0;
    struct message* slot_request_msg = NULL;
    struct message* slot_response_msg = NULL;
+   struct message* drop_slot_msg = NULL;
    struct main_configuration* config = NULL;
+   struct query_response* response = NULL;
    bool create_slot = false;
+   char alt_slot_name[MAX_PATH];
 
    config = (struct main_configuration*)shmem;
 
@@ -2380,22 +2433,71 @@ init_replication_slots(void)
             }
 
             /* Verify replication slot */
-            slot_status = verify_replication_slot(config->common.servers[srv].wal_slot, srv, ssl, socket);
-            if (slot_status == VALID_SLOT)
+            retries = 0;
+            while (retries < max_retries)
             {
-               /* Ok */
-            }
-            else if (!create_slot)
-            {
-               if (slot_status == SLOT_NOT_FOUND)
+               slot_status = verify_replication_slot(config->common.servers[srv].wal_slot, srv, ssl, socket);
+               
+               if (slot_status == VALID_SLOT)
                {
-                  pgmoneta_log_fatal("Replication slot '%s' is not found for server %s", config->common.servers[srv].wal_slot, config->common.servers[srv].name);
-                  ret = 1;
+                  pgmoneta_log_debug("Replication slot '%s' is valid for server %s", 
+                                     config->common.servers[srv].wal_slot, 
+                                     config->common.servers[srv].name);
+                  break;
                }
-               else if (slot_status == INCORRECT_SLOT_TYPE)
+               else if (slot_status == SLOT_ACTIVE)
                {
-                  pgmoneta_log_fatal("Replication slot '%s' should be physical", config->common.servers[srv].wal_slot);
-                  ret = 1;
+                  pgmoneta_log_warn("Replication slot '%s' is active on server %s, waiting...", 
+                                  config->common.servers[srv].wal_slot, 
+                                  config->common.servers[srv].name);
+                  
+                  /* Wait and retry */
+                  sleep(3);
+                  retries++;
+                  
+                  if (retries >= max_retries)
+                  {
+                     pgmoneta_log_warn("Max retries exceeded waiting for slot '%s' on server %s, will try using alternative slot",
+                                     config->common.servers[srv].wal_slot,
+                                     config->common.servers[srv].name);
+                     
+                     /* Generate alternative slot name */
+                     snprintf(alt_slot_name, sizeof(alt_slot_name), "%s_%d", 
+                              config->common.servers[srv].wal_slot, rand() % 1000);
+                     
+                     /* Update the slot name in the configuration */
+                     memset(config->common.servers[srv].wal_slot, 0, strlen(config->common.servers[srv].wal_slot));
+                     memcpy(config->common.servers[srv].wal_slot, alt_slot_name, strlen(alt_slot_name));
+                     
+                     pgmoneta_log_info("Using alternative slot name '%s' for server %s", 
+                                       config->common.servers[srv].wal_slot, 
+                                       config->common.servers[srv].name);
+                     
+                     /* Force create_slot to true */
+                     create_slot = true;
+                  }
+               }
+               else if (!create_slot)
+               {
+                  if (slot_status == SLOT_NOT_FOUND)
+                  {
+                     pgmoneta_log_fatal("Replication slot '%s' is not found for server %s", 
+                                       config->common.servers[srv].wal_slot, 
+                                       config->common.servers[srv].name);
+                     ret = 1;
+                  }
+                  else if (slot_status == INCORRECT_SLOT_TYPE)
+                  {
+                     pgmoneta_log_fatal("Replication slot '%s' should be physical", 
+                                       config->common.servers[srv].wal_slot);
+                     ret = 1;
+                  }
+                  break;
+               }
+               else
+               {
+                  /* Slot not found but create_slot is true, so we'll create it */
+                  break;
                }
             }
          }
@@ -2409,13 +2511,13 @@ init_replication_slots(void)
          pgmoneta_disconnect(socket);
          socket = 0;
 
-         if (create_slot && slot_status == SLOT_NOT_FOUND)
+         if (create_slot && (slot_status == SLOT_NOT_FOUND || retries >= max_retries))
          {
             auth = pgmoneta_server_authenticate(srv, "postgres", config->common.users[usr].username, config->common.users[usr].password, true, &ssl, &socket);
 
             if (auth == AUTH_SUCCESS)
             {
-               pgmoneta_log_trace("CREATE_SLOT: %s/%s", config->common.servers[srv].name, config->common.servers[srv].wal_slot);
+               pgmoneta_log_debug("CREATE_SLOT: %s/%s", config->common.servers[srv].name, config->common.servers[srv].wal_slot);
 
                pgmoneta_create_replication_slot_message(config->common.servers[srv].wal_slot, &slot_request_msg, config->common.servers[srv].version);
                if (pgmoneta_write_message(ssl, socket, slot_request_msg) == MESSAGE_STATUS_OK)
@@ -2487,6 +2589,13 @@ verify_replication_slot(char* slot_name, int srv, SSL* ssl, int socket)
       else if (strcmp(current->data[1], "physical"))
       {
          ret = INCORRECT_SLOT_TYPE;
+      }
+      else if (current->data[3] != NULL && strlen(current->data[3]) > 0)
+      {
+         /* If active PID is non-null, slot is active */
+         pgmoneta_log_error("Replication slot '%s' is active for PID %s on server %s", 
+                            slot_name, current->data[3], config->common.servers[srv].name);
+         ret = SLOT_ACTIVE;
       }
    }
 
