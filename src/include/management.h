@@ -89,6 +89,8 @@ extern "C" {
 #define MANAGEMENT_UPDATE_USER    26
 #define MANAGEMENT_REMOVE_USER    27
 #define MANAGEMENT_LIST_USERS     28
+#define MANAGEMENT_ONLINE         29
+#define MANAGEMENT_OFFLINE        30
 
 /**
  * Management categories
@@ -767,6 +769,30 @@ pgmoneta_management_read_json(SSL* ssl, int socket, uint8_t* compression, uint8_
  */
 int
 pgmoneta_management_write_json(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, struct json* json);
+
+/**
+ * Create an online request
+ * @param ssl The SSL connection
+ * @param socket The socket descriptor
+ * @param compression The compress method for wire protocol
+ * @param encryption The encrypt method for wire protocol
+ * @param output_format The output format
+ * @return 0 upon success, otherwise 1
+ */
+int
+pgmoneta_management_request_online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
+
+/**
+ * Create an offline request
+ * @param ssl The SSL connection
+ * @param socket The socket descriptor
+ * @param compression The compress method for wire protocol
+ * @param encryption The encrypt method for wire protocol
+ * @param output_format The output format
+ * @return 0 upon success, otherwise 1
+ */
+int
+pgmoneta_management_request_offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 
 #ifdef __cplusplus
 }

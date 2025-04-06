@@ -83,6 +83,8 @@
 #define COMMAND_CLEAR "clear"
 #define COMMAND_INFO "info"
 #define COMMAND_ANNOTATE "annotate"
+#define COMMAND_ONLINE "online"
+#define COMMAND_OFFLINE "offline"
 
 #define OUTPUT_FORMAT_JSON "json"
 #define OUTPUT_FORMAT_TEXT "text"
@@ -109,6 +111,8 @@ static void help_conf(void);
 static void help_clear(void);
 static void help_info(void);
 static void help_annotate(void);
+static void help_online(void);
+static void help_offline(void);
 static void display_helper(char* command);
 
 static int backup(SSL* ssl, int socket, char* server, uint8_t compression, uint8_t encryption, char* incremental, int32_t output_format);
@@ -138,6 +142,8 @@ static int annotate(SSL* ssl, int socket, char* server, char* backup, char* comm
 static int conf_ls(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int conf_get(SSL* ssl, int socket, char* config_key, uint8_t compression, uint8_t encryption, int32_t output_format);
 static int conf_set(SSL* ssl, int socket, char* config_key, char* config_value, uint8_t compression, uint8_t encryption, int32_t output_format);
+static int online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
+static int offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 
 static int process_result(SSL* ssl, int socket, int32_t output_format);
 static int process_get_result(SSL* ssl, int socket, char* param, int32_t output_format);
@@ -219,6 +225,8 @@ usage(void)
    printf("  expunge                  Expunge a backup from a server\n");
    printf("  info                     Information about a backup\n");
    printf("  list-backup              List the backups for a server\n");
+   printf("  offline                  Switch server to offline mode\n");
+   printf("  online                   Switch server to online mode\n");
    printf("  ping                     Check if pgmoneta is alive\n");
    printf("  restore                  Restore a backup from a server\n");
    printf("  retain                   Retain a backup from a server\n");
@@ -414,6 +422,22 @@ struct pgmoneta_command command_table[] = {
       .action = MANAGEMENT_ANNOTATE,
       .deprecated = false,
       .log_message = "<annotate> [%s]"
+   },
+   {
+      .command = "online",
+      .subcommand = "",
+      .accepted_argument_count = {0},
+      .action = MANAGEMENT_ONLINE,
+      .deprecated = false,
+      .log_message = "<online>"
+   },
+   {
+      .command = "offline",
+      .subcommand = "",
+      .accepted_argument_count = {0},
+      .action = MANAGEMENT_OFFLINE,
+      .deprecated = false,
+      .log_message = "<offline>"
    }
 };
 
@@ -978,6 +1002,14 @@ execute:
    {
       exit_code = conf_set(s_ssl, socket, parsed.args[0], parsed.args[1], compression, encryption, output_format);
    }
+   else if (parsed.cmd->action == MANAGEMENT_ONLINE)
+   {
+      exit_code = online(s_ssl, socket, compression, encryption, output_format);
+   }
+   else if (parsed.cmd->action == MANAGEMENT_OFFLINE)
+   {
+      exit_code = offline(s_ssl, socket, compression, encryption, output_format);
+   }
 
 done:
 
@@ -1155,6 +1187,20 @@ help_annotate(void)
 }
 
 static void
+help_online(void)
+{
+   printf("online          Switch server to online mode\n");
+   printf("                This enables WAL streaming, replication slots and backup retention\n");
+}
+
+static void
+help_offline(void)
+{
+   printf("offline         Switch server to offline mode\n");
+   printf("                This disables WAL streaming, replication slots and backup retention\n");
+}
+
+static void
 display_helper(char* command)
 {
    if (!strcmp(command, COMMAND_BACKUP))
@@ -1232,6 +1278,14 @@ display_helper(char* command)
    else if (!strcmp(command, COMMAND_ANNOTATE))
    {
       help_annotate();
+   }
+   else if (!strcmp(command, COMMAND_ONLINE))
+   {
+      help_online();
+   }
+   else if (!strcmp(command, COMMAND_OFFLINE))
+   {
+      help_offline();
    }
    else
    {
@@ -2329,8 +2383,12 @@ static char*
 translate_command(int32_t cmd_code)
 {
    char* command_output = NULL;
+
    switch (cmd_code)
    {
+      case MANAGEMENT_UNKNOWN:
+         command_output = pgmoneta_append(command_output, "unknown");
+         break;
       case MANAGEMENT_BACKUP:
          command_output = pgmoneta_append(command_output, COMMAND_BACKUP);
          break;
@@ -2373,6 +2431,9 @@ translate_command(int32_t cmd_code)
       case MANAGEMENT_DECRYPT:
          command_output = pgmoneta_append(command_output, COMMAND_DECRYPT);
          break;
+      case MANAGEMENT_ENCRYPT:
+         command_output = pgmoneta_append(command_output, COMMAND_ENCRYPT);
+         break;
       case MANAGEMENT_DECOMPRESS:
          command_output = pgmoneta_append(command_output, COMMAND_DECOMPRESS);
          break;
@@ -2403,9 +2464,16 @@ translate_command(int32_t cmd_code)
          command_output = pgmoneta_append_char(command_output, ' ');
          command_output = pgmoneta_append(command_output, "set");
          break;
+      case MANAGEMENT_ONLINE:
+         command_output = pgmoneta_append(command_output, COMMAND_ONLINE);
+         break;
+      case MANAGEMENT_OFFLINE:
+         command_output = pgmoneta_append(command_output, COMMAND_OFFLINE);
+         break;
       default:
          break;
    }
+
    return command_output;
 }
 
@@ -3032,4 +3100,26 @@ translate_json_object(struct json* j)
          }
       }
    }
+}
+
+static int
+online(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format)
+{
+   if (pgmoneta_management_request_online(ssl, socket, compression, encryption, output_format))
+   {
+      return 1;
+   }
+
+   return process_result(ssl, socket, output_format);
+}
+
+static int
+offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format)
+{
+   if (pgmoneta_management_request_offline(ssl, socket, compression, encryption, output_format))
+   {
+      return 1;
+   }
+
+   return process_result(ssl, socket, output_format);
 }
