@@ -423,8 +423,22 @@ struct pgmoneta_command command_table[] = {
       .deprecated = false,
       .log_message = "<annotate> [%s]"
    },
-   {"online", "Switch to online mode", NULL, MANAGEMENT_ONLINE, "-h"},
-   {"offline", "Switch to offline mode", NULL, MANAGEMENT_OFFLINE, "-h"},
+   {
+      .command = "online",
+      .subcommand = "",
+      .accepted_argument_count = {0},
+      .action = MANAGEMENT_ONLINE,
+      .deprecated = false,
+      .log_message = "<online>"
+   },
+   {
+      .command = "offline",
+      .subcommand = "",
+      .accepted_argument_count = {0},
+      .action = MANAGEMENT_OFFLINE,
+      .deprecated = false,
+      .log_message = "<offline>"
+   },
 };
 
 int
