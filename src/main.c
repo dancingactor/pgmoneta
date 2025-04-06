@@ -123,6 +123,10 @@ static struct accept_io io_management[MAX_FDS];
 static int* management_fds = NULL;
 static int management_fds_length = -1;
 static bool offline = false;
+static struct ev_periodic wal;
+static struct ev_periodic retention;
+static struct ev_periodic valid;
+static struct ev_periodic wal_streaming;
 
 static void
 start_mgt(void)
@@ -243,10 +247,6 @@ main(int argc, char** argv)
    bool metrics_started = false;
    pid_t pid, sid;
    struct signal_info signal_watcher[5];
-   struct ev_periodic wal;
-   struct ev_periodic retention;
-   struct ev_periodic valid;
-   struct ev_periodic wal_streaming;
    size_t shmem_size;
    size_t prometheus_cache_shmem_size = 0;
    struct main_configuration* config = NULL;
@@ -1608,6 +1608,105 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
          pgmoneta_log_error("Annotate: No server %s (%d)", server, MANAGEMENT_ERROR_ANNOTATE_NOSERVER);
          goto error;
       }
+   }
+   else if (id == MANAGEMENT_ONLINE)
+   {
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+#endif
+
+      if (offline)
+      {
+         pgmoneta_log_info("Switching to online mode");
+
+         /* Start to retrieve WAL */
+         init_receivewals();
+
+         /* Start to validate server configuration */
+         ev_periodic_init (&valid, valid_cb, 0., 600, 0);
+         ev_periodic_start (main_loop, &valid);
+
+         /* Start to verify WAL streaming */
+         ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
+         ev_periodic_start (main_loop, &wal_streaming);
+
+         /* Start WAL compression */
+         if (config->compression_type != COMPRESSION_NONE ||
+             config->encryption != ENCRYPTION_NONE)
+         {
+            ev_periodic_init(&wal, wal_cb, 0., 60, 0);
+            ev_periodic_start(main_loop, &wal);
+         }
+
+         /* Start backup retention policy */
+         ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
+         ev_periodic_start(main_loop, &retention);
+
+         if (init_replication_slots())
+         {
+            pgmoneta_log_error("Failed to reinitialize replication slots");
+            // Depending on your design, you might set offline back to true or exit here.
+         }
+
+         offline = false;
+      }
+      else
+      {
+         pgmoneta_log_debug("System already in online mode");
+      }
+
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+#endif
+
+      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   }
+   else if (id == MANAGEMENT_OFFLINE)
+   {
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+#endif
+
+      if (!offline)
+      {
+         pgmoneta_log_info("Switching to offline mode");
+
+         /* Stop WAL streaming verification */
+         ev_periodic_stop(main_loop, &wal_streaming);
+
+         /* Stop validation */
+         ev_periodic_stop(main_loop, &valid);
+
+         /* Stop WAL compression if running */
+         if (config->compression_type != COMPRESSION_NONE ||
+             config->encryption != ENCRYPTION_NONE)
+         {
+            ev_periodic_stop(main_loop, &wal);
+         }
+
+         /* Stop backup retention policy */
+         ev_periodic_stop(main_loop, &retention);
+
+         offline = true;
+      }
+      else
+      {
+         pgmoneta_log_debug("System already in offline mode");
+      }
+
+#ifdef HAVE_FREEBSD
+      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+#else
+      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+#endif
+
+      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
    }
    else
    {
