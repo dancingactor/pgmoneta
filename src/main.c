@@ -1644,6 +1644,12 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
          ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
          ev_periodic_start(main_loop, &retention);
 
+         if (init_replication_slots())
+         {
+            pgmoneta_log_error("Failed to reinitialize replication slots");
+            // Depending on your design, you might set offline back to true or exit here.
+         }
+
          offline = false;
       }
       else
