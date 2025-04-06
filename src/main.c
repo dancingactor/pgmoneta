@@ -123,6 +123,10 @@ static struct accept_io io_management[MAX_FDS];
 static int* management_fds = NULL;
 static int management_fds_length = -1;
 static bool offline = false;
+static struct ev_periodic wal;
+static struct ev_periodic retention;
+static struct ev_periodic valid;
+static struct ev_periodic wal_streaming;
 
 static void
 start_mgt(void)
@@ -243,10 +247,6 @@ main(int argc, char** argv)
    bool metrics_started = false;
    pid_t pid, sid;
    struct signal_info signal_watcher[5];
-   struct ev_periodic wal;
-   struct ev_periodic retention;
-   struct ev_periodic valid;
-   struct ev_periodic wal_streaming;
    size_t shmem_size;
    size_t prometheus_cache_shmem_size = 0;
    struct main_configuration* config = NULL;
