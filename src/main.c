@@ -1612,101 +1612,132 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    else if (id == MANAGEMENT_ONLINE)
    {
 #ifdef HAVE_FREEBSD
-      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+   clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
 #else
-      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+   clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
 #endif
 
-      if (offline)
+   if (offline)
+   {
+      pgmoneta_log_info("Switching to online mode");
+
+      /* Reset WAL streaming status on all servers */
+      for (int i = 0; i < config->common.number_of_servers; i++)
       {
-         pgmoneta_log_info("Switching to online mode");
-
-         /* Start to retrieve WAL */
-         init_receivewals();
-
-         /* Start to validate server configuration */
-         ev_periodic_init (&valid, valid_cb, 0., 600, 0);
-         ev_periodic_start (main_loop, &valid);
-
-         /* Start to verify WAL streaming */
-         ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
-         ev_periodic_start (main_loop, &wal_streaming);
-
-         /* Start WAL compression */
-         if (config->compression_type != COMPRESSION_NONE ||
-             config->encryption != ENCRYPTION_NONE)
-         {
-            ev_periodic_init(&wal, wal_cb, 0., 60, 0);
-            ev_periodic_start(main_loop, &wal);
-         }
-
-         /* Start backup retention policy */
-         ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
-         ev_periodic_start(main_loop, &retention);
-
-         if (init_replication_slots())
-         {
-            pgmoneta_log_error("Failed to reinitialize replication slots");
-            // Depending on your design, you might set offline back to true or exit here.
-         }
-
-         offline = false;
+         config->common.servers[i].wal_streaming = false;
       }
-      else
+
+      /* Start WAL streaming */
+      init_receivewals();
+
+      /* Give WAL streaming time to start */
+      sleep(2);
+
+      /* Start to validate server configuration */
+      ev_periodic_init (&valid, valid_cb, 0., 600, 0);
+      ev_periodic_start (main_loop, &valid);
+
+      /* Start to verify WAL streaming */
+      ev_periodic_init (&wal_streaming, wal_streaming_cb, 0., 60, 0);
+      ev_periodic_start (main_loop, &wal_streaming);
+
+      /* Start WAL compression */
+      if (config->compression_type != COMPRESSION_NONE ||
+          config->encryption != ENCRYPTION_NONE)
       {
-         pgmoneta_log_debug("System already in online mode");
+         ev_periodic_init(&wal, wal_cb, 0., 60, 0);
+         ev_periodic_start(main_loop, &wal);
       }
+
+      /* Start backup retention policy */
+      ev_periodic_init(&retention, retention_cb, 0., config->retention_interval, 0);
+      ev_periodic_start(main_loop, &retention);
+
+      if (init_replication_slots())
+      {
+         pgmoneta_log_error("Failed to reinitialize replication slots");
+         /* Continue anyway - we might not need slots immediately */
+      }
+
+      offline = false;
+      
+      /* Force a server info update for all servers */
+      for (int i = 0; i < config->common.number_of_servers; i++)
+      {
+         pgmoneta_server_info(i);
+      }
+   }
+   else
+   {
+      pgmoneta_log_debug("System already in online mode");
+   }
 
 #ifdef HAVE_FREEBSD
-      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+   clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
 #else
-      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+   clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
 #endif
 
-      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
    }
    else if (id == MANAGEMENT_OFFLINE)
    {
 #ifdef HAVE_FREEBSD
-      clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
+   clock_gettime(CLOCK_MONOTONIC_FAST, &start_t);
 #else
-      clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
+   clock_gettime(CLOCK_MONOTONIC_RAW, &start_t);
 #endif
 
-      if (!offline)
+   if (!offline)
+   {
+      pgmoneta_log_info("Switching to offline mode");
+
+      /* Stop WAL streaming verification */
+      ev_periodic_stop(main_loop, &wal_streaming);
+
+      /* Stop validation */
+      ev_periodic_stop(main_loop, &valid);
+
+      /* Stop WAL compression if running */
+      if (config->compression_type != COMPRESSION_NONE ||
+          config->encryption != ENCRYPTION_NONE)
       {
-         pgmoneta_log_info("Switching to offline mode");
-
-         /* Stop WAL streaming verification */
-         ev_periodic_stop(main_loop, &wal_streaming);
-
-         /* Stop validation */
-         ev_periodic_stop(main_loop, &valid);
-
-         /* Stop WAL compression if running */
-         if (config->compression_type != COMPRESSION_NONE ||
-             config->encryption != ENCRYPTION_NONE)
-         {
-            ev_periodic_stop(main_loop, &wal);
-         }
-
-         /* Stop backup retention policy */
-         ev_periodic_stop(main_loop, &retention);
-
-         offline = true;
+         ev_periodic_stop(main_loop, &wal);
       }
-      else
+
+      /* Stop backup retention policy */
+      ev_periodic_stop(main_loop, &retention);
+
+      /* Mark all servers as not WAL streaming */
+      for (int i = 0; i < config->common.number_of_servers; i++)
       {
-         pgmoneta_log_debug("System already in offline mode");
+         config->common.servers[i].wal_streaming = false;
       }
+
+      /* Kill any existing WAL streaming processes */
+      if (fork() == 0)
+      {
+         char cmd[256];
+         pgmoneta_set_proc_title(1, argv_ptr, "kill wal", "");
+         snprintf(cmd, sizeof(cmd), "pkill -f 'pgmoneta.*wal'");
+         system(cmd);
+         exit(0);
+      }
+
+      offline = true;
+   }
+   else
+   {
+      pgmoneta_log_debug("System already in offline mode");
+   }
 
 #ifdef HAVE_FREEBSD
-      clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
+   clock_gettime(CLOCK_MONOTONIC_FAST, &end_t);
 #else
-      clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
+   clock_gettime(CLOCK_MONOTONIC_RAW, &end_t);
 #endif
 
-      pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
+   pgmoneta_management_response_ok(NULL, client_fd, start_t, end_t, compression, encryption, payload);
    }
    else
    {
@@ -2226,33 +2257,53 @@ init_receivewals(void)
 
    config = (struct main_configuration*)shmem;
 
+   pgmoneta_log_debug("Starting WAL streaming for %d servers", config->common.number_of_servers);
+
    for (int i = 0; i < config->common.number_of_servers; i++)
    {
+      /* Only start WAL streaming for primary servers (no follow) */
       if (strlen(config->common.servers[i].follow) == 0)
       {
          pid_t pid;
 
+         pgmoneta_log_debug("Starting WAL streaming for server %s", config->common.servers[i].name);
+         
          pid = fork();
          if (pid == -1)
          {
             /* No process */
-            pgmoneta_log_error("WAL - Cannot create process");
+            pgmoneta_log_error("WAL - Cannot create process for server %s", config->common.servers[i].name);
          }
          else if (pid == 0)
          {
             shutdown_ports();
             pgmoneta_wal(i, argv_ptr);
+            
+            /* Should not reach here, but just in case */
+            exit(1);
          }
          else
          {
             active++;
+            pgmoneta_log_debug("WAL streaming started for server %s (PID: %d)", 
+                              config->common.servers[i].name, pid);
          }
+      }
+      else
+      {
+         pgmoneta_log_debug("Skipping WAL streaming for server %s (follows %s)", 
+                           config->common.servers[i].name, 
+                           config->common.servers[i].follow);
       }
    }
 
    if (active == 0)
    {
-      pgmoneta_log_error("No active WAL streaming");
+      pgmoneta_log_error("No active WAL streaming - no eligible servers found");
+   }
+   else
+   {
+      pgmoneta_log_info("Started WAL streaming for %d servers", active);
    }
 }
 
