@@ -2368,9 +2368,7 @@ init_replication_slots(void)
    int retries = 0;
    struct message* slot_request_msg = NULL;
    struct message* slot_response_msg = NULL;
-   struct message* drop_slot_msg = NULL;
    struct main_configuration* config = NULL;
-   struct query_response* response = NULL;
    bool create_slot = false;
    char alt_slot_name[MAX_PATH];
 
