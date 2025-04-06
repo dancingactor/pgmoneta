@@ -807,10 +807,7 @@ int pgmoneta_management_request_online(SSL* ssl, int socket, uint8_t compression
  */
 int pgmoneta_management_request_offline(SSL* ssl, int socket, uint8_t compression, uint8_t encryption, int32_t output_format);
 
-#define MANAGEMENT_ERROR_INFO_NOSERVER                   73
 #define MANAGEMENT_ERROR_INFO_UNKNOWN                     74
-#define MANAGEMENT_ERROR_ANNOTATE_NOFORK                  75
-#define MANAGEMENT_ERROR_ANNOTATE_NOSERVER                76
 #define MANAGEMENT_ERROR_ANNOTATE_UNKNOWN                 77
 #define MANAGEMENT_ERROR_ONLINE_FAILED                    78
 #define MANAGEMENT_ERROR_OFFLINE_FAILED                   79
