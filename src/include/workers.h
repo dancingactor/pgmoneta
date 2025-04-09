@@ -34,6 +34,7 @@ extern "C" {
 #endif
 
 #include <pgmoneta.h>
+#include <deque.h>
 
 #include <pthread.h>
 #include <stdio.h>
@@ -51,26 +52,13 @@ struct semaphore
    int value;             /**< The current value */
 };
 
-/** @struct task
- * Defines a task
+/** @struct worker_task
+ * Defines a worker task
  */
-struct task
+struct worker_task
 {
-   struct task* previous;                  /**< The previous task */
-   void (*function)(struct worker_common*); /**< The task */
-   struct worker_common* wc;                /**< The common base */
-};
-
-/** @struct queue
- * Defines a queue
- */
-struct queue
-{
-   pthread_mutex_t rwmutex;     /**< The read/write mutex */
-   struct task* front;          /**< The first task */
-   struct task* rear;           /**< The last task */
-   struct semaphore* has_tasks; /**< Are there any tasks ? */
-   int number_of_tasks;         /**< The number of tasks */
+   void (*function)(struct worker_common*); /**< The task function */
+   struct worker_common* wc;                /**< Pointer to the common data */
 };
 
 /** @struct worker
@@ -93,7 +81,8 @@ struct workers
    pthread_mutex_t worker_lock;    /**< The worker lock */
    pthread_cond_t worker_all_idle; /**< Are workers idle */
    bool outcome;                   /**< Outcome of the workers */
-   struct queue queue;             /**< The queue */
+   struct deque* queue;       /**< The task queue using deque */
+   struct semaphore* has_tasks;    /**< Are there any tasks ? */
 };
 
 /** @struct worker_common
