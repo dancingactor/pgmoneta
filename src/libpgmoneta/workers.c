@@ -265,17 +265,38 @@ pgmoneta_create_worker_input(char* directory, char* from, char* to, int level,
 
    if (directory != NULL && strlen(directory) > 0)
    {
-      memcpy(w->directory, directory, strlen(directory));
+      size_t max_len = sizeof(w->directory);
+
+      if (strlen(directory) >= max_len) {
+         pgmoneta_log_error("Directory name is too long: %s", directory);
+         goto error;
+      }
+
+      snprintf(w->directory, sizeof(w->directory), "%s", directory);
    }
 
    if (from != NULL && strlen(from) > 0)
    {
-      memcpy(w->from, from, strlen(from));
+      size_t max_len = sizeof(w->from);
+
+      if (strlen(from) >= max_len) {
+         pgmoneta_log_error("From name is too long: %s", from);
+         goto error;
+      }
+
+      snprintf(w->from, sizeof(w->from), "%s", from);
    }
 
    if (to != NULL && strlen(to) > 0)
    {
-      memcpy(w->to, to, strlen(to));
+      size_t max_len = sizeof(w->to);
+      
+      if (strlen(to) >= max_len) {
+         pgmoneta_log_error("To name is too long: %s", to);
+         goto error;
+      }
+
+      snprintf(w->to, sizeof(w->to), "%s", to);
    }
 
    w->level = level;
