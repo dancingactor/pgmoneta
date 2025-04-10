@@ -52,6 +52,15 @@ struct semaphore
    int value;             /**< The current value */
 };
 
+/** @struct worker_task
+ * Defines a worker task
+ */
+struct worker_task
+{
+   void (*function)(struct worker_common*); /**< The task function */
+   struct worker_common* wc;                /**< Pointer to the common data */
+};
+
 /** @struct worker
  * Defines a worker
  */
@@ -82,7 +91,6 @@ struct workers
 struct worker_common
 {
    struct workers* workers;  /**< The root structure */
-   void (*function)(struct worker_common*); /**< The task function */
 };
 
 /** @struct worker_input

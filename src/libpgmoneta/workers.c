@@ -50,7 +50,7 @@ static int semaphore_init(struct semaphore* semaphore, int value);
 static void semaphore_post(struct semaphore* semaphore);
 static void semaphore_post_all(struct semaphore* semaphore);
 static void semaphore_wait(struct semaphore* semaphore);
-static void destroy_data_wrapper(uintptr_t data);
+static void destroy_task_wrapper(uintptr_t data);
 
 int
 pgmoneta_workers_initialize(int num, struct workers** workers)
@@ -134,24 +134,24 @@ error:
 int
 pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc)
 {
-   struct worker_common* task_wc = NULL;
+   struct worker_task* task = NULL;
 
    if (workers != NULL)
    {
-      task_wc = (struct worker_common*)malloc(sizeof(struct worker_common));
-      if (task_wc == NULL)
+      task = (struct worker_task*)malloc(sizeof(struct worker_task));
+      if (task == NULL)
       {
          pgmoneta_log_error("Could not allocate memory for task");
          goto error;
       }
 
-      memcpy(task_wc, wc, sizeof(struct worker_common));
-      task_wc->function = function;
+      task->function = function;
+      task->wc = wc;
 
       struct value_config config = {0};
-      config.destroy_data = destroy_data_wrapper;
+      config.destroy_data = destroy_task_wrapper;
       
-      pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task_wc, &config);
+      pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task, &config);
       
       semaphore_post(workers->has_tasks);
 
@@ -190,6 +190,8 @@ pgmoneta_workers_destroy(struct workers* workers)
 
    if (workers != NULL)
    {
+      pgmoneta_workers_wait(workers);
+      
       worker_total = workers->number_of_alive;
       worker_keepalive = 0;
 
@@ -345,7 +347,7 @@ error:
 static void*
 worker_do(struct worker* worker)
 {
-   struct worker_common* task_wc;
+   struct worker_task* task;
    struct workers* workers = worker->workers;
 
    pthread_mutex_lock(&workers->worker_lock);
@@ -362,11 +364,11 @@ worker_do(struct worker* worker)
          workers->number_of_working++;
          pthread_mutex_unlock(&workers->worker_lock);
 
-         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, NULL);
+         task = (struct worker_task*)pgmoneta_deque_poll(workers->queue, NULL);
          
-         if (task_wc)
+         if (task)
          {
-            task_wc->function(task_wc);
+            task->function(task->wc);
          }
 
          pthread_mutex_lock(&workers->worker_lock);
@@ -376,7 +378,6 @@ worker_do(struct worker* worker)
             pthread_cond_signal(&workers->worker_all_idle);
          }
          pthread_mutex_unlock(&workers->worker_lock);
-
       }
    }
    pthread_mutex_lock(&workers->worker_lock);
@@ -443,7 +444,8 @@ semaphore_wait(struct semaphore* semaphore)
 }
 
 static void
-destroy_data_wrapper(uintptr_t data)
+destroy_task_wrapper(uintptr_t data)
 {
-   free((void*)data);
+   struct worker_task* task = (struct worker_task*)data;
+   free(task);
 }
