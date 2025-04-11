@@ -254,6 +254,7 @@ error:
 
    if (number_of_workers > 0)
    {
+      pgmoneta_workers_wait(workers);
       pgmoneta_workers_destroy(workers);
    }
 
@@ -814,6 +815,7 @@ copy_wal_execute(char* name, struct art* nodes)
 error:
    if (number_of_workers > 0)
    {
+      pgmoneta_workers_wait(workers);
       pgmoneta_workers_destroy(workers);
    }
    free(origwal);
@@ -978,6 +980,7 @@ error:
 
    if (number_of_workers > 0)
    {
+      pgmoneta_workers_wait(workers);
       pgmoneta_workers_destroy(workers);
    }
 
