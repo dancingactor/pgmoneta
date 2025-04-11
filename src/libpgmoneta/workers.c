@@ -522,7 +522,6 @@ semaphore_wait(struct semaphore* semaphore)
    if (semaphore == NULL) {
       pgmoneta_log_error("Semaphore is NULL in semaphore_wait");
       pgmoneta_backtrace();
-      return 1;
    }
 
    pthread_mutex_lock(&semaphore->mutex);
@@ -532,8 +531,6 @@ semaphore_wait(struct semaphore* semaphore)
    }
    semaphore->value = 0;
    pthread_mutex_unlock(&semaphore->mutex);
-   
-   return 0;
 }
 
 static void
