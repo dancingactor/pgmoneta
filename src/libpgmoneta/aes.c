@@ -160,8 +160,6 @@ do_encrypt_file(struct worker_common* wc)
    {
       pgmoneta_log_warn("do_encrypt_file: %s -> %s", wi->from, wi->to);
    }
-
-   free(wi);
 }
 
 int
