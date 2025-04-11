@@ -31,6 +31,7 @@
 #include <logging.h>
 #include <workers.h>
 #include <value.h>
+#include <utils.h>
 
 #include <errno.h>
 #include <signal.h>
@@ -63,6 +64,8 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
 
    if (num < 1)
    {
+      pgmoneta_log_error("Invalid worker count: %d", num);
+      pgmoneta_backtrace();
       goto error;
    }
 
@@ -70,6 +73,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    if (w == NULL)
    {
       pgmoneta_log_error("Could not allocate memory for worker pool");
+      pgmoneta_backtrace();
       goto error;
    }
 
@@ -79,6 +83,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
 
    if (pgmoneta_deque_create(true, &w->queue)) {
       pgmoneta_log_error("Could not allocate memory for deque");
+      pgmoneta_backtrace();
       goto error;
    }
 
@@ -86,12 +91,14 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    if (w->has_tasks == NULL)
    {
       pgmoneta_log_error("Could not allocate memory for task semaphore");
+      pgmoneta_backtrace();
       goto error;
    }
 
    if (semaphore_init(w->has_tasks, 0))
    {  
       pgmoneta_log_error("Could not initialize task semaphore");
+      pgmoneta_backtrace();
       goto error;
    }
 
@@ -120,7 +127,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
    return 0;
 
 error:
-
+   pgmoneta_backtrace();
    if (w != NULL)
    {
       pgmoneta_deque_destroy(w->queue);
@@ -136,30 +143,50 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
 {
    struct worker_common* task_wc = NULL;
 
-   if (workers != NULL)
+   if (workers == NULL)
    {
-      task_wc = (struct worker_common*)malloc(sizeof(struct worker_common));
-      if (task_wc == NULL)
-      {
-         pgmoneta_log_error("Could not allocate memory for task");
-         goto error;
-      }
-
-      memcpy(task_wc, wc, sizeof(struct worker_common));
-      task_wc->function = function;
-
-      struct value_config config = {0};
-      config.destroy_data = destroy_data_wrapper;
-      
-      pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task_wc, &config);
-      
-      semaphore_post(workers->has_tasks);
-
-      return 0;
+      pgmoneta_log_error("Workers is NULL in pgmoneta_workers_add");
+      pgmoneta_backtrace();
+      goto error;
    }
 
-error:
+   if (function == NULL)
+   {
+      pgmoneta_log_error("Function pointer is NULL in pgmoneta_workers_add");
+      pgmoneta_backtrace();
+      goto error;
+   }
 
+   task_wc = (struct worker_common*)malloc(sizeof(struct worker_common));
+   if (task_wc == NULL)
+   {
+      pgmoneta_log_error("Could not allocate memory for task");
+      pgmoneta_backtrace();
+      goto error;
+   }
+
+   memcpy(task_wc, wc, sizeof(struct worker_common));
+   task_wc->function = function;
+
+   struct value_config config = {0};
+   config.destroy_data = destroy_data_wrapper;
+   
+   if (pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task_wc, &config) != 0) 
+   {
+      pgmoneta_log_error("Failed to add task to queue");
+      pgmoneta_backtrace();
+      goto error;
+   }
+   
+   semaphore_post(workers->has_tasks);
+
+   return 0;
+
+error:
+   if (task_wc != NULL)
+   {
+      free(task_wc);
+   }
    return 1;
 }
 
@@ -188,36 +215,54 @@ pgmoneta_workers_destroy(struct workers* workers)
    time_t end;
    double tpassed = 0.0;
 
-   if (workers != NULL)
+   if (workers == NULL)
    {
-      worker_total = workers->number_of_alive;
-      worker_keepalive = 0;
-
-      time (&start);
-      while (tpassed < timeout && workers->number_of_alive)
-      {
-         semaphore_post_all(workers->has_tasks);
-         time(&end);
-         tpassed = difftime(end, start);
-      }
-
-      while (workers->number_of_alive)
-      {
-         semaphore_post_all(workers->has_tasks);
-         SLEEP(1000000000L);
-      }
-
-      pgmoneta_deque_destroy(workers->queue);
-      free(workers->has_tasks);
-
-      for (int n = 0; n < worker_total; n++)
-      {
-         worker_destroy(workers->worker[n]);
-      }
-
-      free(workers->worker);
-      free(workers);
+      pgmoneta_log_error("Workers is NULL in pgmoneta_workers_destroy");
+      pgmoneta_backtrace();
+      return;
    }
+
+   worker_total = workers->number_of_alive;
+   worker_keepalive = 0;
+
+   // Use backtrace if workers aren't terminating properly
+   time(&start);
+   while (tpassed < timeout && workers->number_of_alive)
+   {
+      semaphore_post_all(workers->has_tasks);
+      time(&end);
+      tpassed = difftime(end, start);
+   }
+
+   if (workers->number_of_alive > 0) {
+      pgmoneta_log_error("Workers still alive after initial shutdown attempt: %d", workers->number_of_alive);
+      pgmoneta_backtrace();
+   }
+
+   // Additional attempts to terminate workers
+   int attempts = 0;
+   while (workers->number_of_alive && attempts < 3)
+   {
+      semaphore_post_all(workers->has_tasks);
+      SLEEP(1000000000L);
+      attempts++;
+      
+      if (attempts == 3 && workers->number_of_alive > 0) {
+         pgmoneta_log_error("Some workers (%d) could not be terminated", workers->number_of_alive);
+         pgmoneta_backtrace();
+      }
+   }
+
+   pgmoneta_deque_destroy(workers->queue);
+   free(workers->has_tasks);
+
+   for (int n = 0; n < worker_total; n++)
+   {
+      worker_destroy(workers->worker[n]);
+   }
+
+   free(workers->worker);
+   free(workers);
 }
 
 int
@@ -325,20 +370,34 @@ worker_init(struct workers* workers, struct worker** worker)
    if (w == NULL)
    {
       pgmoneta_log_error("Could not allocate memory for worker");
+      pgmoneta_backtrace();
       goto error;
    }
 
    w->workers = workers;
 
-   pthread_create(&w->pthread, NULL, (void* (*)(void*)) worker_do, w);
-   pthread_detach(w->pthread);
+   if (pthread_create(&w->pthread, NULL, (void* (*)(void*)) worker_do, w) != 0) 
+   {
+      pgmoneta_log_error("Failed to create worker thread: %s", strerror(errno));
+      pgmoneta_backtrace();
+      goto error;
+   }
+   
+   if (pthread_detach(w->pthread) != 0) 
+   {
+      pgmoneta_log_error("Failed to detach worker thread: %s", strerror(errno));
+      // Not a fatal error, just log it
+   }
 
    *worker = w;
 
    return 0;
 
 error:
-
+   if (w != NULL)
+   {
+      free(w);
+   }
    return 1;
 }
 
@@ -363,10 +422,25 @@ worker_do(struct worker* worker)
          pthread_mutex_unlock(&workers->worker_lock);
 
          task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, NULL);
-         
          if (task_wc)
          {
-            task_wc->function(task_wc);
+            pgmoneta_log_debug("Worker executing task function, number of alive: %d, number of working: %d", 
+                              workers->number_of_alive, workers->number_of_working);
+            
+            void (*func_ref)(struct worker_common*) = task_wc->function;
+            if (func_ref == NULL) {
+               pgmoneta_log_error("Function pointer is NULL in worker task");
+               pgmoneta_backtrace();
+            } else {
+               func_ref(task_wc);
+            }
+
+            free(task_wc);
+         }
+         else
+         {
+            pgmoneta_log_error("Failed to get task from queue");
+            pgmoneta_backtrace();
          }
 
          pthread_mutex_lock(&workers->worker_lock);
@@ -415,6 +489,12 @@ error:
 static void
 semaphore_post(struct semaphore* semaphore)
 {
+   if (semaphore == NULL) {
+      pgmoneta_log_error("Semaphore is NULL in semaphore_post");
+      pgmoneta_backtrace();
+      return;
+   }
+   
    pthread_mutex_lock(&semaphore->mutex);
    semaphore->value = 1;
    pthread_cond_signal(&semaphore->cond);
@@ -424,6 +504,12 @@ semaphore_post(struct semaphore* semaphore)
 static void
 semaphore_post_all(struct semaphore* semaphore)
 {
+   if (semaphore == NULL) {
+      pgmoneta_log_error("Semaphore is NULL in semaphore_post_all");
+      pgmoneta_backtrace();
+      return;
+   }
+   
    pthread_mutex_lock(&semaphore->mutex);
    semaphore->value = 1;
    pthread_cond_broadcast(&semaphore->cond);
@@ -433,6 +519,12 @@ semaphore_post_all(struct semaphore* semaphore)
 static void
 semaphore_wait(struct semaphore* semaphore)
 {
+   if (semaphore == NULL) {
+      pgmoneta_log_error("Semaphore is NULL in semaphore_wait");
+      pgmoneta_backtrace();
+      return 1;
+   }
+
    pthread_mutex_lock(&semaphore->mutex);
    while (semaphore->value != 1)
    {
@@ -440,6 +532,8 @@ semaphore_wait(struct semaphore* semaphore)
    }
    semaphore->value = 0;
    pthread_mutex_unlock(&semaphore->mutex);
+   
+   return 0;
 }
 
 static void
@@ -447,3 +541,4 @@ destroy_data_wrapper(uintptr_t data)
 {
    free((void*)data);
 }
+
