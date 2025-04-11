@@ -536,6 +536,10 @@ semaphore_wait(struct semaphore* semaphore)
 static void
 destroy_data_wrapper(uintptr_t data)
 {
-   free((void*)data);
+   struct worker_common* wc = (struct worker_common*)data;
+       
+   // Free only the worker_common structure itself
+   // Don't free what it points to (wc->workers, etc.)
+   free(wc);
 }
 
