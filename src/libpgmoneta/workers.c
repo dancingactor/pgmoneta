@@ -421,7 +421,10 @@ worker_do(struct worker* worker)
          workers->number_of_working++;
          pthread_mutex_unlock(&workers->worker_lock);
 
-         task_wc = (struct worker_common*)pgmoneta_deque_poll(workers->queue, NULL);
+         task_wc = (struct worker_common*)malloc(sizeof(struct worker_common));
+    
+         memcpy(task_wc, (struct worker_common*)pgmoneta_deque_poll(workers->queue, NULL), sizeof(struct worker_common));
+
          if (task_wc)
          {
             pgmoneta_log_debug("Worker executing task function, number of alive: %d, number of working: %d", 
