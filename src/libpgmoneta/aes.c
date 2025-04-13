@@ -60,10 +60,16 @@ pgmoneta_encrypt_data(char* d, struct workers* workers)
    DIR* dir;
    struct dirent* entry;
 
+   pgmoneta_log_debug("encrypt_data: starting for directory");
+
    if (!(dir = opendir(d)))
    {
+      pgmoneta_log_error("encrypt_data: failed to open directory");
+      pgmoneta_backtrace();
       goto error;
    }
+
+   pgmoneta_log_debug("encrypt_data: directory opened successfully");
 
    while ((entry = readdir(dir)) != NULL)
    {
@@ -77,6 +83,7 @@ pgmoneta_encrypt_data(char* d, struct workers* workers)
          }
 
          snprintf(path, sizeof(path), "%s/%s", d, entry->d_name);
+         pgmoneta_log_debug("encrypt_data: processing subdirectory");
 
          pgmoneta_encrypt_data(path, workers);
       }
@@ -97,23 +104,38 @@ pgmoneta_encrypt_data(char* d, struct workers* workers)
             to = pgmoneta_append(to, entry->d_name);
             to = pgmoneta_append(to, ".aes");
 
+            pgmoneta_log_debug("encrypt_data: processing file");
+
             if (pgmoneta_exists(from))
             {
                struct worker_input* wi = NULL;
 
+               pgmoneta_log_debug("encrypt_data: creating worker input for");
                if (!pgmoneta_create_worker_input(NULL, from, to, 0, workers, &wi))
                {
                   if (workers != NULL)
                   {
                      if (workers->outcome)
                      {
+                        pgmoneta_log_debug("encrypt_data: adding file task to workers queue");
                         pgmoneta_workers_add(workers, do_encrypt_file, (struct worker_common*)wi);
+                     }
+                     else
+                     {
+                        pgmoneta_log_debug("encrypt_data: skipping file due to previous worker failure");
+                        free(wi);
                      }
                   }
                   else
                   {
+                     pgmoneta_log_debug("encrypt_data: processing file directly (no workers)");
                      do_encrypt_file((struct worker_common*)wi);
                   }
+               }
+               else
+               {
+                  pgmoneta_log_error("encrypt_data: failed to create worker input for");
+                  pgmoneta_backtrace();
                }
             }
 
@@ -126,11 +148,13 @@ pgmoneta_encrypt_data(char* d, struct workers* workers)
       }
    }
 
+   pgmoneta_log_debug("encrypt_data: finished processing directory");
    closedir(dir);
 
    return 0;
 
 error:
+   pgmoneta_log_error("encrypt_data: error processing directory");
 
    if (dir != NULL)
    {
@@ -145,10 +169,14 @@ do_encrypt_file(struct worker_common* wc)
 {
    struct worker_input* wi = (struct worker_input*)wc;
 
+   pgmoneta_log_debug("do_encrypt_file: processing");
+
    if (!encrypt_file(wi->from, wi->to, 1))
    {
+      pgmoneta_log_debug("do_encrypt_file: encryption successful for ");
       if (pgmoneta_exists(wi->from))
       {
+         pgmoneta_log_debug("do_encrypt_file: deleting original file");
          pgmoneta_delete_file(wi->from, NULL);
       }
       else
@@ -158,9 +186,11 @@ do_encrypt_file(struct worker_common* wc)
    }
    else
    {
-      pgmoneta_log_warn("do_encrypt_file: %s -> %s", wi->from, wi->to);
+      pgmoneta_log_warn("do_encrypt_file: encryption failed for");
+      pgmoneta_backtrace();
    }
 
+   pgmoneta_log_debug("do_encrypt_file: completed processing");
    free(wi);
 }
 
@@ -876,6 +906,8 @@ encrypt_file(char* from, char* to, int enc)
    int outl = 0;
    int f_len = 0;
 
+   pgmoneta_log_debug("encrypt_file: starting for");
+
    config = (struct main_configuration*)shmem;
    cipher_fp = get_cipher(config->encryption);
    cipher_block_size = EVP_CIPHER_block_size(cipher_fp());
@@ -884,55 +916,77 @@ encrypt_file(char* from, char* to, int enc)
    unsigned char inbuf[inbuf_size];
    unsigned char outbuf[outbuf_size];
 
+   pgmoneta_log_debug("encrypt_file: getting master key");
    if (pgmoneta_get_master_key(&master_key))
    {
       pgmoneta_log_error("pgmoneta_get_master_key: Invalid master key");
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: master key obtained");
+   
    memset(&key, 0, sizeof(key));
    memset(&iv, 0, sizeof(iv));
+   pgmoneta_log_debug("encrypt_file: deriving key and iv");
    if (derive_key_iv(master_key, key, iv, config->encryption) != 0)
    {
       pgmoneta_log_error("derive_key_iv: Failed to derive key and iv");
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: key and iv derived");
 
+   pgmoneta_log_debug("encrypt_file: creating cipher context");
    if (!(ctx = EVP_CIPHER_CTX_new()))
    {
       pgmoneta_log_error("EVP_CIPHER_CTX_new: Failed to get context");
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: cipher context created");
 
+   pgmoneta_log_debug("encrypt_file: opening input file");
    in = fopen(from, "rb");
    if (in == NULL)
    {
       pgmoneta_log_error("fopen: Could not open %s", from);
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: input file opened");
 
+   pgmoneta_log_debug("encrypt_file: opening output file");
    out = fopen(to, "w");
    if (out == NULL)
    {
       pgmoneta_log_error("fopen: Could not open %s", to);
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: output file opened");
 
+   pgmoneta_log_debug("encrypt_file: initializing cipher");
    if (EVP_CipherInit_ex(ctx, cipher_fp(), NULL, key, iv, enc) == 0)
    {
-      pgmoneta_log_error("EVP_CipherInit_ex: ailed to initialize context");
+      pgmoneta_log_error("EVP_CipherInit_ex: Failed to initialize context");
+      pgmoneta_backtrace();
       goto error;
    }
+   pgmoneta_log_debug("encrypt_file: cipher initialized");
 
+   pgmoneta_log_debug("encrypt_file: processing file data");
    while ((inl = fread(inbuf, sizeof(char), inbuf_size, in)) > 0)
    {
       if (EVP_CipherUpdate(ctx, outbuf, &outl, inbuf, inl) == 0)
       {
          pgmoneta_log_error("EVP_CipherUpdate: failed to process block");
+         pgmoneta_backtrace();
          goto error;
       }
       if (fwrite(outbuf, sizeof(char), outl, out) != (size_t)outl)
       {
          pgmoneta_log_error("fwrite: failed to write cipher");
+         pgmoneta_backtrace();
          goto error;
       }
    }
@@ -940,12 +994,15 @@ encrypt_file(char* from, char* to, int enc)
    if (ferror(in))
    {
       pgmoneta_log_error("fread: error reading from file: %s", from);
+      pgmoneta_backtrace();
       goto error;
    }
 
+   pgmoneta_log_debug("encrypt_file: finalizing encryption");
    if (EVP_CipherFinal_ex(ctx, outbuf, &f_len) == 0)
    {
       pgmoneta_log_error("EVP_CipherFinal_ex: failed to process final cipher block");
+      pgmoneta_backtrace();
       goto error;
    }
 
@@ -954,9 +1011,12 @@ encrypt_file(char* from, char* to, int enc)
       if (fwrite(outbuf, sizeof(char), f_len, out) != (size_t)f_len)
       {
          pgmoneta_log_error("fwrite: failed to write final block");
+         pgmoneta_backtrace();
          goto error;
       }
    }
+
+   pgmoneta_log_debug("encrypt_file: completed successfully for");
 
    if (ctx)
    {
@@ -968,6 +1028,8 @@ encrypt_file(char* from, char* to, int enc)
    return 0;
 
 error:
+   pgmoneta_log_error("encrypt_file: error processing");
+
    if (ctx)
    {
       EVP_CIPHER_CTX_free(ctx);
