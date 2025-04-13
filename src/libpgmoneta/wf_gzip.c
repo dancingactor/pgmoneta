@@ -201,6 +201,7 @@ error:
 
    if (number_of_workers > 0)
    {
+      pgmoneta_workers_wait(workers);
       pgmoneta_workers_destroy(workers);
    }
 

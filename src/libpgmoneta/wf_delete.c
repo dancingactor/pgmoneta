@@ -395,6 +395,7 @@ delete_backup(int server, int index, struct backup* backup, int number_of_backup
 error:
    if (number_of_workers > 0)
    {
+      pgmoneta_workers_wait(workers);
       pgmoneta_workers_destroy(workers);
    }
 
