@@ -173,6 +173,7 @@ pgmoneta_workers_wait(struct workers* workers)
 
       while (pgmoneta_deque_size(workers->queue) || workers->number_of_working)
       {
+         pgmoneta_log_debug("deque length: %d, working workers: %d", pgmoneta_deque_size(workers->queue), workers->number_of_working);
          pthread_cond_wait(&workers->worker_all_idle, &workers->worker_lock);
       }
 
@@ -369,6 +370,7 @@ worker_do(struct worker* worker)
          
          if (task)
          {
+            pgmoneta_log_debug("worker_do: executing task");
             task->function(task->wc);
          }
 
