@@ -30,6 +30,7 @@
 #include <deque.h>
 #include <logging.h>
 #include <workers.h>
+#include <utils.h>
 #include <value.h>
 
 #include <errno.h>
