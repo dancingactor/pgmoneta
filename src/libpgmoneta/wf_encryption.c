@@ -135,32 +135,50 @@ encryption_execute(char* name, struct art* nodes)
 
    if (tarfile == NULL)
    {
+      pgmoneta_log_debug("Encryption: starting worker initialization");
       number_of_workers = pgmoneta_get_number_of_workers(server);
       if (number_of_workers > 0)
       {
+         pgmoneta_log_debug("Encryption: initializing %d workers", number_of_workers);
          pgmoneta_workers_initialize(number_of_workers, &workers);
+         pgmoneta_log_debug("Encryption: workers initialized");
       }
 
       backup_base = (char*)pgmoneta_art_search(nodes, NODE_BACKUP_BASE);
       backup_data = (char*)pgmoneta_art_search(nodes, NODE_BACKUP_DATA);
-
+      
+      pgmoneta_log_debug("Encryption: starting encrypt_data on %s", backup_data);
       if (pgmoneta_encrypt_data(backup_data, workers))
       {
+         pgmoneta_log_error("Encryption: encrypt_data failed");
+         pgmoneta_backtrace();
          goto error;
       }
+      pgmoneta_log_debug("Encryption: encrypt_data completed");
+
+      pgmoneta_log_debug("Encryption: starting encrypt_tablespaces on %s", backup_base);
       if (pgmoneta_encrypt_tablespaces(backup_base, workers))
       {
+         pgmoneta_log_error("Encryption: encrypt_tablespaces failed");
+         pgmoneta_backtrace();
          goto error;
       }
+      pgmoneta_log_debug("Encryption: encrypt_tablespaces completed");
 
       if (number_of_workers > 0)
       {
+         pgmoneta_log_debug("Encryption: waiting for workers to complete");
          pgmoneta_workers_wait(workers);
+         pgmoneta_log_debug("Encryption: workers wait completed");
          if (!workers->outcome)
          {
+            pgmoneta_log_error("Encryption: workers reported failure");
+            pgmoneta_backtrace();
             goto error;
          }
+         pgmoneta_log_debug("Encryption: destroying workers");
          pgmoneta_workers_destroy(workers);
+         pgmoneta_log_debug("Encryption: workers destroyed");
       }
    }
    else
