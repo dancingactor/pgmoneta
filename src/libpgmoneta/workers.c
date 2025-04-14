@@ -222,6 +222,7 @@ pgmoneta_workers_destroy(struct workers* workers)
       free(workers->worker);
       free(workers);
    }
+   pgmoneta_log_debug("Workers destroyed");
 }
 
 int
@@ -386,7 +387,7 @@ worker_do(struct worker* worker)
    pthread_mutex_lock(&workers->worker_lock);
    workers->number_of_alive--;
    pthread_mutex_unlock(&workers->worker_lock);
-
+   pgmoneta_log_debug("Worker thread exiting cleanly");
    return NULL;
 }
 
