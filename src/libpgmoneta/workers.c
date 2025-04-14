@@ -373,6 +373,7 @@ worker_do(struct worker* worker)
          {
             pgmoneta_log_debug("worker_do: executing task");
             task->function(task->wc);
+            free(task);
          }
 
          pthread_mutex_lock(&workers->worker_lock);
