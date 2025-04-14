@@ -429,7 +429,7 @@ static void
 semaphore_post_all(struct semaphore* semaphore)
 {
    pthread_mutex_lock(&semaphore->mutex);
-   semaphore->value = 1;
+   semaphore->value++;
    pthread_cond_broadcast(&semaphore->cond);
    pthread_mutex_unlock(&semaphore->mutex);
 }
