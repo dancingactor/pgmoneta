@@ -399,7 +399,7 @@ worker_destroy(struct worker* w)
 static int
 semaphore_init(struct semaphore* semaphore, int value)
 {
-   if (value < 0 || value > 1 || semaphore == NULL)
+   if (value < 0 || semaphore == NULL)
    {
       pgmoneta_log_error("Invalid semaphore value: %d", value);
       goto error;
@@ -420,7 +420,7 @@ static void
 semaphore_post(struct semaphore* semaphore)
 {
    pthread_mutex_lock(&semaphore->mutex);
-   semaphore->value = 1;
+   semaphore->value++;
    pthread_cond_signal(&semaphore->cond);
    pthread_mutex_unlock(&semaphore->mutex);
 }
@@ -438,11 +438,11 @@ static void
 semaphore_wait(struct semaphore* semaphore)
 {
    pthread_mutex_lock(&semaphore->mutex);
-   while (semaphore->value != 1)
+   while (semaphore->value == 0)
    {
       pthread_cond_wait(&semaphore->cond, &semaphore->mutex);
    }
-   semaphore->value = 0;
+   semaphore->value--;
    pthread_mutex_unlock(&semaphore->mutex);
 }
 
