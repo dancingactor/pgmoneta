@@ -82,7 +82,6 @@
 
 #define NAME "main"
 #define MAX_FDS 64
-#define OFFLINE 1000
 
 #define VALID_SLOT 0
 #define SLOT_NOT_FOUND 1
