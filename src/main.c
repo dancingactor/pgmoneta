@@ -83,6 +83,8 @@
 #define NAME "main"
 #define MAX_FDS 64
 #define OFFLINE 1000
+#define AUTO_OFFLINE 1001
+#define ONLINE 1002
 
 static void accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents);
 static void accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents);
@@ -793,7 +795,7 @@ error:
 }
 
 static void
-accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
+(struct ev_loop* loop, struct ev_io* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
    socklen_t client_addr_length;
