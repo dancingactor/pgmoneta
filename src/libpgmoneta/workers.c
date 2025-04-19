@@ -46,7 +46,7 @@ static int worker_init(struct workers* workers, struct worker** worker);
 static void* worker_do(struct worker* worker);
 static void worker_destroy(struct worker* worker);
 
-static int semaphore_init(struct semaphore* semaphore, int count);
+static int semaphore_init(struct semaphore* semaphore);
 static void semaphore_post(struct semaphore* semaphore);
 static void semaphore_post_all(struct semaphore* semaphore);
 static void semaphore_wait(struct semaphore* semaphore);
@@ -90,7 +90,7 @@ pgmoneta_workers_initialize(int num, struct workers** workers)
       goto error;
    }
 
-   if (semaphore_init(w->has_tasks, 0))
+   if (semaphore_init(w->has_tasks))
    {
       pgmoneta_log_error("Could not initialize workers semaphore");
       goto error;
@@ -136,6 +136,7 @@ int
 pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc, char* function_name)
 {
    struct worker_task* task = NULL;
+   struct value_config config = {0};
 
    if (workers != NULL)
    {
@@ -150,7 +151,6 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
       task->wc = wc;
       task->name = function_name;
 
-      struct value_config config = {0};
       config.destroy_data = destroy_task_wrapper;
 
       pgmoneta_log_trace("Adding task to queue: %s (%p)", function_name, function);
@@ -378,17 +378,17 @@ worker_destroy(struct worker* w)
 }
 
 static int
-semaphore_init(struct semaphore* semaphore, int count)
+semaphore_init(struct semaphore* semaphore)
 {
-   if (count < 0 || semaphore == NULL)
+   if (semaphore == NULL)
    {
-      pgmoneta_log_error("Invalid semaphore value: %d", count);
+      pgmoneta_log_error("Invalid semaphore");
       goto error;
    }
 
    pthread_mutex_init(&(semaphore->mutex), NULL);
    pthread_cond_init(&(semaphore->cond), NULL);
-   semaphore->count = count;
+   semaphore->count = 0;
 
    return 0;
 
