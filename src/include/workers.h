@@ -123,11 +123,10 @@ pgmoneta_workers_initialize(int num, struct workers** workers);
  * @param workers The workers
  * @param function The function pointer
  * @param wc The argument
- * @param function_name The function name
  * @return 0 upon success, otherwise 1.
  */
 int
-pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc, char* function_name);
+pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc);
 
 /**
  * Wait for all queued work units to finish

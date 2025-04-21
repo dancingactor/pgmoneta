@@ -133,7 +133,7 @@ error:
 }
 
 int
-pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc, char* function_name)
+pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_common*), struct worker_common* wc)
 {
    struct worker_task* task = NULL;
    struct value_config config = {0};
@@ -149,11 +149,10 @@ pgmoneta_workers_add(struct workers* workers, void (*function)(struct worker_com
 
       task->function = function;
       task->wc = wc;
-      task->name = function_name;
+      task->name = NULL;
 
       config.destroy_data = destroy_task_wrapper;
 
-      pgmoneta_log_trace("Adding task to queue: %s (%p)", function_name, function);
       pgmoneta_deque_add_with_config(workers->queue, NULL, (uintptr_t)task, &config);
 
       semaphore_post(workers->has_tasks);
@@ -175,7 +174,6 @@ pgmoneta_workers_wait(struct workers* workers)
 
       while (pgmoneta_deque_size(workers->queue) > 0 || workers->number_of_working > 0)
       {
-         pgmoneta_log_trace("Waiting for workers to finish. Running tasks: %d, Remaining tasks: %d", workers->number_of_working, pgmoneta_deque_size(workers->queue));
          pthread_cond_wait(&workers->worker_all_idle, &workers->worker_lock);
       }
 
@@ -350,7 +348,6 @@ worker_do(struct worker* worker)
          if (task)
          {
             task->function(task->wc);
-            pgmoneta_log_trace("Finished task: %s (%p)", task->name, task->function);
             free(task);
          }
 
